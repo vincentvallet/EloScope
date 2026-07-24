@@ -1,0 +1,9 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 220 44" role="img" aria-labelledby="title">
+  <title id="title">EloScope</title>
+  <g transform="translate(2 4)">
+    <circle cx="19" cy="18" r="15" fill="none" stroke="#356B82" stroke-width="2"/>
+    <circle cx="19" cy="18" r="5" fill="#244A5A"/>
+    <path d="M7 34h17v-3H9l3-6V14H9V8h4v4h3V8h4v6h-3v11l3 6H7z" fill="#244A5A"/>
+  </g>
+  <text x="48" y="30" fill="#244A5A" font-family="Inter,Arial,sans-serif" font-size="27" font-weight="700">EloScope</text>
+</svg>

@@ -1,0 +1,24 @@
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "sqlite"
+  url      = env("DATABASE_URL")
+}
+
+model TournamentReport {
+  id              String   @id @default(cuid())
+  slug            String   @unique
+  title           String
+  sourceType      String
+  sourceUrl       String?
+  importedAt      DateTime @default(now())
+  sourceUpdatedAt DateTime?
+  normalizedJson  String
+  createdAt       DateTime @default(now())
+  updatedAt       DateTime @updatedAt
+
+  @@index([sourceType])
+  @@index([updatedAt])
+}
