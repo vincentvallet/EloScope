@@ -19,6 +19,7 @@ import { EChart } from "@/components/echart";
 
 const LEGACY_STORAGE_KEY = "eloscope:ffe-report";
 const SESSION_REPORT_KEY = "eloscope:session-report";
+const SESSION_ACTIVE_REPORT_KEY = "eloscope:active-report";
 const SESSION_REPORTS_KEY = "eloscope:session-reports";
 const SESSION_HISTORY_KEY = "eloscope:session-history";
 const BASE = "/tournoi/importe";
@@ -129,7 +130,17 @@ function enrichCalculatedMetrics(report: NormalizedTournament) {
 }
 
 function reportKey(report: NormalizedTournament) {
-  return report.report.sourceUrl || `${report.report.title}::${report.report.importedAt}`;
+  if (report.report.sourceUrl) {
+    try {
+      const source = new URL(report.report.sourceUrl);
+      const ffeReference = source.searchParams.get("Ref");
+      if (ffeReference) return `ffe:${ffeReference}`;
+      return source.toString();
+    } catch {
+      return report.report.sourceUrl;
+    }
+  }
+  return `${report.report.title}::${report.report.importedAt}`;
 }
 
 function readSessionReports() {
@@ -152,18 +163,22 @@ function useImportedReport() {
   useEffect(() => {
     try {
       localStorage.removeItem(LEGACY_STORAGE_KEY);
-      const stored = sessionStorage.getItem(SESSION_REPORT_KEY);
+      const legacyStored = sessionStorage.getItem(SESSION_REPORT_KEY);
+      const activeKey = sessionStorage.getItem(SESSION_ACTIVE_REPORT_KEY);
       const savedReports = readSessionReports();
-      if (stored) {
-        const enriched = enrichCalculatedMetrics(JSON.parse(stored) as NormalizedTournament);
+      if (legacyStored) {
+        const enriched = enrichCalculatedMetrics(JSON.parse(legacyStored) as NormalizedTournament);
         const merged = [enriched, ...savedReports.filter((item) => reportKey(item) !== reportKey(enriched))];
-        sessionStorage.setItem(SESSION_REPORT_KEY, JSON.stringify(enriched));
         storeSessionReports(merged);
-        setReport(enriched);
+        const selected = merged.find((item) => reportKey(item) === activeKey) ?? enriched;
+        sessionStorage.setItem(SESSION_ACTIVE_REPORT_KEY, reportKey(selected));
+        sessionStorage.removeItem(SESSION_REPORT_KEY);
+        setReport(selected);
         setReports(merged);
       } else if (savedReports.length) {
-        sessionStorage.setItem(SESSION_REPORT_KEY, JSON.stringify(savedReports[0]));
-        setReport(savedReports[0]);
+        const selected = savedReports.find((item) => reportKey(item) === activeKey) ?? savedReports[0];
+        sessionStorage.setItem(SESSION_ACTIVE_REPORT_KEY, reportKey(selected));
+        setReport(selected);
         setReports(savedReports);
       } else {
         setReport(null);
@@ -180,44 +195,28 @@ function useImportedReport() {
     const updated = [enriched, ...current.filter((item) => reportKey(item) !== reportKey(enriched))];
     storeSessionReports(updated);
     setReports(updated);
-    sessionStorage.setItem(SESSION_REPORT_KEY, JSON.stringify(enriched));
+    sessionStorage.setItem(SESSION_ACTIVE_REPORT_KEY, reportKey(enriched));
+    sessionStorage.removeItem(SESSION_REPORT_KEY);
     setReport(enriched);
   };
   return { report, reports, ready, setReport: selectReport };
 }
 
 type SessionHistory = {
-  tournaments: Array<{ title: string; sourceUrl?: string; players: number; rounds: number; searchedAt: string }>;
   players: Array<{ id: string; name: string; rating?: number; club?: string; tournament: string; searchedAt: string }>;
 };
 
-const emptyHistory = (): SessionHistory => ({ tournaments: [], players: [] });
+const emptyHistory = (): SessionHistory => ({ players: [] });
 
 function readSessionHistory() {
   try {
     const parsed = JSON.parse(sessionStorage.getItem(SESSION_HISTORY_KEY) ?? "") as Partial<SessionHistory>;
     return {
-      tournaments: Array.isArray(parsed.tournaments) ? parsed.tournaments : [],
       players: Array.isArray(parsed.players) ? parsed.players : [],
     };
   } catch {
     return emptyHistory();
   }
-}
-
-function rememberTournament(report: NormalizedTournament) {
-  const history = readSessionHistory();
-  history.tournaments = [
-    {
-      title: report.report.title,
-      sourceUrl: report.report.sourceUrl,
-      players: report.players.length,
-      rounds: report.report.totalRounds,
-      searchedAt: new Date().toISOString(),
-    },
-    ...history.tournaments.filter((item) => item.sourceUrl !== report.report.sourceUrl),
-  ];
-  sessionStorage.setItem(SESSION_HISTORY_KEY, JSON.stringify(history));
 }
 
 function rememberPlayer(player: ImportedPlayer, tournament: string) {
@@ -422,14 +421,12 @@ function ImportPanel({ compact = false, setReport }: { compact?: boolean; setRep
       if (!response.ok || !payload.data) throw new Error(payload.error ?? "Import impossible.");
       if (!payload.data.players.length) throw new Error(payload.data.warnings[0] ?? "Aucun joueur détecté.");
       setPreview(payload.data);
-      rememberTournament(payload.data);
     } catch (caught) {
       setError(caught instanceof Error ? caught.message : "Import impossible.");
     } finally { setLoading(false); }
   };
   const generate = () => {
     if (!preview) return;
-    sessionStorage.setItem(SESSION_REPORT_KEY, JSON.stringify(preview));
     setReport(preview);
     window.location.assign(`${BASE}/vue-ensemble`);
   };
@@ -665,10 +662,9 @@ function RecentPage({
   useEffect(() => setHistory(readSessionHistory()), []);
   return <div className="plain-page"><div className="page-heading"><span className="eyebrow">Mémoire de la session</span><h1>Historique récent</h1><p>Ces recherches restent uniquement dans l’onglet courant et disparaissent à la fermeture de la session du navigateur.</p></div>
     <SectionTitle>Tournois recherchés</SectionTitle>
-    {history.tournaments.length ? <div className="report-grid">{history.tournaments.map((item) => {
-      const storedReport = reports.find((candidate) => candidate.report.sourceUrl === item.sourceUrl);
-      return <a className="report-card" href={storedReport ? `${BASE}/vue-ensemble` : "/importer"} onClick={() => { if (storedReport) setReport(storedReport); }} key={`${item.sourceUrl}-${item.searchedAt}`}>
-      <div className="report-badge"><Trophy/></div><span className="status-pill success"><Check/>FFE</span><h3>{item.title}</h3><p>{item.players} joueurs · {item.rounds} rondes</p><small>Recherché le {new Date(item.searchedAt).toLocaleString("fr-FR")}</small>
+    {reports.length ? <div className="report-grid">{reports.map((storedReport) => {
+      return <a className="report-card" href={`${BASE}/vue-ensemble`} onClick={() => setReport(storedReport)} key={reportKey(storedReport)}>
+      <div className="report-badge"><Trophy/></div><span className="status-pill success"><Check/>FFE</span><h3>{storedReport.report.title}</h3><p>{storedReport.players.length} joueurs · {storedReport.report.totalRounds} rondes</p><small>Importé le {new Date(storedReport.report.importedAt).toLocaleString("fr-FR")}</small>
       </a>;
     })}</div> : <EmptyState title="Aucun tournoi recherché">Importez une fiche tournoi FFE pour commencer.</EmptyState>}
     <SectionTitle>Joueurs consultés</SectionTitle>
