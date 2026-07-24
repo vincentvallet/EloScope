@@ -11,7 +11,7 @@ import {
 } from "lucide-react";
 import type { ImportedPlayer, NormalizedTournament } from "@/lib/importers/types";
 import type { RoundResult } from "@/lib/domain";
-import { calculateTournamentDelta, RULESETS } from "@/lib/rating/engine";
+import { calculateTournamentDelta, estimatePerformance, RULESETS } from "@/lib/rating/engine";
 import { formatNumber, formatScore, signed } from "@/lib/format";
 import { Avatar, Card, EmptyState, Kpi, SectionTitle } from "@/components/ui";
 import { EChart } from "@/components/echart";
@@ -43,6 +43,89 @@ function toRatingRounds(player: ImportedPlayer): RoundResult[] {
   }));
 }
 
+function playerPerformanceSummary(player: ImportedPlayer, report: NormalizedTournament) {
+  const played = player.rounds.filter((round) => round.played && round.result != null);
+  const wins = played.filter((round) => round.result === 1).length;
+  const draws = played.filter((round) => round.result === 0.5).length;
+  const losses = played.filter((round) => round.result === 0).length;
+  const rated = played.filter((round) => round.opponentRating != null);
+  const averageOpponent = rated.length
+    ? rated.reduce((sum, round) => sum + round.opponentRating!, 0) / rated.length
+    : null;
+  const opponentsByName = new Map(report.players.map((item) => [item.name, item]));
+  const knownOpponents = played.map((round) => round.opponentName ? opponentsByName.get(round.opponentName) : undefined).filter(Boolean) as ImportedPlayer[];
+  const averageOpponentRank = knownOpponents.length
+    ? knownOpponents.reduce((sum, opponent) => sum + opponent.rank, 0) / knownOpponents.length
+    : null;
+  const scoreAgainst = (predicate: (rating: number) => boolean) => {
+    const rounds = rated.filter((round) => predicate(round.opponentRating!));
+    return {
+      count: rounds.length,
+      score: rounds.reduce((sum, round) => sum + (round.result ?? 0), 0),
+    };
+  };
+  const stronger = player.rating ? scoreAgainst((rating) => rating > player.rating! + 100) : { count: 0, score: 0 };
+  const similar = player.rating ? scoreAgainst((rating) => Math.abs(rating - player.rating!) <= 100) : { count: 0, score: 0 };
+  const lower = player.rating ? scoreAgainst((rating) => rating < player.rating! - 100) : { count: 0, score: 0 };
+  const notable = [...rated]
+    .filter((round) => (round.result ?? 0) >= 0.5)
+    .sort((a, b) => (b.opponentRating ?? 0) - (a.opponentRating ?? 0) || (b.result ?? 0) - (a.result ?? 0))[0];
+  const notableOpponent = notable?.opponentName ? opponentsByName.get(notable.opponentName) : undefined;
+  const paragraphs = [
+    `${player.name} termine ${player.rank}e sur ${report.players.length} avec ${formatScore(player.score)} points sur ${report.report.totalRounds} (${formatNumber(report.report.totalRounds ? player.score / report.report.totalRounds * 100 : 0)} %), pour un bilan de ${wins} victoire${wins === 1 ? "" : "s"}, ${draws} nulle${draws === 1 ? "" : "s"} et ${losses} défaite${losses === 1 ? "" : "s"}.`,
+  ];
+  if (averageOpponent != null) {
+    const performanceText = player.performance != null
+      ? ` Sa performance estimée est de ${formatNumber(player.performance)}${player.rating ? `, soit ${signed(player.performance - player.rating, 0)} points par rapport à son Elo initial` : ""}.`
+      : "";
+    paragraphs.push(`L’opposition rencontrée affiche un Elo moyen de ${formatNumber(averageOpponent)}${averageOpponentRank != null ? ` et une place finale moyenne de ${formatNumber(averageOpponentRank)}` : ""}.${performanceText}`);
+  }
+  const comparisons = [
+    stronger.count ? `${formatScore(stronger.score)}/${stronger.count} contre les adversaires mieux classés de plus de 100 points` : "",
+    similar.count ? `${formatScore(similar.score)}/${similar.count} contre les adversaires d’un niveau comparable` : "",
+    lower.count ? `${formatScore(lower.score)}/${lower.count} contre les adversaires moins classés de plus de 100 points` : "",
+  ].filter(Boolean);
+  if (comparisons.length) paragraphs.push(`Répartition des résultats : ${comparisons.join(" ; ")}.`);
+  if (notable) {
+    const resultLabel = notable.result === 1 ? "victoire" : "partie nulle";
+    paragraphs.push(`Son résultat le plus marquant au regard du classement adverse est une ${resultLabel} à la ronde ${notable.round} contre ${notable.opponentName ?? "un adversaire"} (${formatNumber(notable.opponentRating!)} Elo)${notableOpponent ? `, qui termine ${notableOpponent.rank}e avec ${formatScore(notableOpponent.score)} points` : ""}.`);
+  }
+  return paragraphs;
+}
+
+function enrichCalculatedMetrics(report: NormalizedTournament) {
+  const players = report.players.map((player) => ({
+    ...player,
+    rounds: player.rounds.map((round) => ({ ...round })),
+    tieBreaks: { ...player.tieBreaks },
+  }));
+  const byRank = new Map(players.map((player) => [player.rank, player]));
+  for (const player of players) {
+    player.performance ??= estimatePerformance(toRatingRounds(player));
+    if (!Object.keys(player.tieBreaks).length) {
+      let buchholz = 0;
+      let sonnebornBerger = 0;
+      let progressive = 0;
+      let cumulative = 0;
+      for (const round of player.rounds) {
+        cumulative += round.result ?? 0;
+        progressive += cumulative;
+        const opponent = round.opponentRank ? byRank.get(round.opponentRank) : undefined;
+        if (opponent && round.played) {
+          buchholz += opponent.score;
+          sonnebornBerger += opponent.score * (round.result ?? 0);
+        }
+      }
+      player.tieBreaks = {
+        "Buchholz calculé": Number(buchholz.toFixed(2)),
+        "Sonneborn-Berger calculé": Number(sonnebornBerger.toFixed(2)),
+        "Progressif calculé": Number(progressive.toFixed(2)),
+      };
+    }
+  }
+  return { ...report, players };
+}
+
 function useImportedReport() {
   const [report, setReport] = useState<NormalizedTournament | null>(null);
   const [ready, setReady] = useState(false);
@@ -50,7 +133,13 @@ function useImportedReport() {
     try {
       localStorage.removeItem(LEGACY_STORAGE_KEY);
       const stored = sessionStorage.getItem(SESSION_REPORT_KEY);
-      setReport(stored ? JSON.parse(stored) as NormalizedTournament : null);
+      if (stored) {
+        const enriched = enrichCalculatedMetrics(JSON.parse(stored) as NormalizedTournament);
+        sessionStorage.setItem(SESSION_REPORT_KEY, JSON.stringify(enriched));
+        setReport(enriched);
+      } else {
+        setReport(null);
+      }
     } catch {
       sessionStorage.removeItem(SESSION_REPORT_KEY);
     }
@@ -136,6 +225,13 @@ function exportPlayers(players: ImportedPlayer[]) {
     rows.map((row) => row.map((cell) => `"${String(cell).replaceAll('"', '""')}"`).join(";")).join("\n"),
     "text/csv;charset=utf-8",
   );
+}
+
+function tieBreakAbbreviation(label: string) {
+  if (/buch|^bu/i.test(label)) return "Bu";
+  if (/sonn|^sb/i.test(label)) return "SB";
+  if (/pro/i.test(label)) return "Pro";
+  return label.replace(/\s*calculé/i, "").slice(0, 4);
 }
 
 export function EloScopeApp() {
@@ -293,7 +389,7 @@ function ImportPanel({ compact = false, setReport }: { compact?: boolean; setRep
     <div className="card-actions"><button className="button secondary" onClick={() => setPreview(null)}>Changer le lien</button><button className="button primary" onClick={generate}>Générer le rapport <ArrowRight/></button></div>
   </Card>;
   return <Card className={compact ? "hero-import" : "import-card"}>
-    <div className="field-stack"><label htmlFor={compact ? "home-url" : "source-url"}>Lien de la fiche tournoi FFE</label><div className="input-with-icon"><Search/><input id={compact ? "home-url" : "source-url"} value={url} onChange={(event) => setUrl(event.target.value)} placeholder="https://echecs.asso.fr/FicheTournoi.aspx?Ref=70244" /></div>
+    <div className="field-stack"><label htmlFor={compact ? "home-url" : "source-url"}>Lien de la fiche tournoi FFE</label><div className="input-with-icon"><Search/><input id={compact ? "home-url" : "source-url"} value={url} onChange={(event) => setUrl(event.target.value)} placeholder="https://echecs.asso.fr/FicheTournoi.aspx?Ref=IDENTIFIANT DU TOURNOI" /></div>
       <p className="field-help"><Info/>EloScope récupère automatiquement <code>Action=Ls</code> pour les clubs et <code>Action=Ga</code> pour les résultats.</p>
       {url && !valid && <p className="field-error"><CircleAlert/>Collez une URL FicheTournoi.aspx?Ref=… du domaine officiel echecs.asso.fr.</p>}
       {error && <div className="notice warning"><CircleAlert/><p>{error}</p></div>}
@@ -361,7 +457,7 @@ function RankingPreview({ players }: { players: ImportedPlayer[] }) {
 function RankingPage({ report }: { report: NormalizedTournament }) {
   const [query, setQuery] = useState("");
   const players = report.players.filter((player) => player.name.toLocaleLowerCase("fr").includes(query.toLocaleLowerCase("fr"))).sort((a, b) => a.rank - b.rank);
-  return <div className="report-page"><TournamentHeader report={report} active="classement"/><Card className="table-card"><SectionTitle action={<button className="button secondary" onClick={() => exportPlayers(players)}><Download/>Exporter CSV</button>}>Classement FFE</SectionTitle><div className="table-toolbar"><div className="input-with-icon"><Search/><input value={query} onChange={(event) => setQuery(event.target.value)} placeholder="Rechercher un joueur…"/></div><span>{players.length} joueurs</span></div><div className="table-scroll always"><table><thead><tr><th>Place</th><th>Joueur</th><th>Club</th><th>Elo</th><th>Catégorie</th><th>Fédération</th><th>Ligue</th><th>Score</th><th>Départages</th><th>Performance</th><th>Var. Elo estimée</th></tr></thead><tbody>{players.map((player) => { const scenario = calculateTournamentDelta(player.rating ?? 0, toRatingRounds(player), 20); return <tr key={player.id} onClick={() => { rememberPlayer(player, report.report.title); window.location.assign(playerHref(player)); }}><td><span className={`rank rank-${player.rank}`}>{player.rank}</span></td><td><div className="player-cell"><Avatar name={player.name}/><strong>{player.name}</strong></div></td><td>{player.club ?? "—"}</td><td>{player.rating ?? "NC"}</td><td>{player.category ?? "—"}</td><td>{player.federation ?? "—"}</td><td>{player.league ?? "—"}</td><td><strong>{formatScore(player.score)} / {report.report.totalRounds}</strong></td><td>{Object.values(player.tieBreaks).map((value) => value == null ? "—" : formatNumber(value)).join(" · ") || "—"}</td><td>{player.performance ?? "—"}</td><td className={scenario.roundedTotalDelta >= 0 ? "positive-text" : "negative-text"}>{player.rating ? signed(scenario.roundedTotalDelta, 0) : "—"}</td></tr>; })}</tbody></table></div></Card></div>;
+  return <div className="report-page"><TournamentHeader report={report} active="classement"/><Card className="table-card"><SectionTitle action={<button className="button secondary" onClick={() => exportPlayers(players)}><Download/>Exporter CSV</button>}>Classement FFE</SectionTitle><div className="table-toolbar"><div className="input-with-icon"><Search/><input value={query} onChange={(event) => setQuery(event.target.value)} placeholder="Rechercher un joueur…"/></div><span>{players.length} joueurs</span></div><div className="table-scroll always"><table><thead><tr><th>Place</th><th>Joueur</th><th>Club</th><th>Elo</th><th>Catégorie</th><th>Fédération</th><th>Ligue</th><th>Score</th><th>Départages calculés</th><th>Performance estimée</th><th>Var. Elo estimée</th></tr></thead><tbody>{players.map((player) => { const scenario = calculateTournamentDelta(player.rating ?? 0, toRatingRounds(player), 20); return <tr key={player.id} onClick={() => { rememberPlayer(player, report.report.title); window.location.assign(playerHref(player)); }}><td><span className={`rank rank-${player.rank}`}>{player.rank}</span></td><td><div className="player-cell"><Avatar name={player.name}/><strong>{player.name}</strong></div></td><td>{player.club ?? "—"}</td><td>{player.rating ?? "NC"}</td><td>{player.category ?? "—"}</td><td>{player.federation ?? "—"}</td><td>{player.league ?? "—"}</td><td><strong>{formatScore(player.score)} / {report.report.totalRounds}</strong></td><td>{Object.entries(player.tieBreaks).map(([label, value]) => `${tieBreakAbbreviation(label)} : ${value == null ? "—" : formatNumber(value)}`).join(" · ") || "—"}</td><td>{player.performance ?? "—"}</td><td className={scenario.roundedTotalDelta >= 0 ? "positive-text" : "negative-text"}>{player.rating ? signed(scenario.roundedTotalDelta, 0) : "—"}</td></tr>; })}</tbody></table></div></Card></div>;
 }
 
 function PlayerReport({ report, id }: { report: NormalizedTournament; id?: string }) {
@@ -376,6 +472,7 @@ function PlayerReport({ report, id }: { report: NormalizedTournament; id?: strin
     rememberPlayer(player, report.report.title);
   }, [player, report.report.title]);
   const scenario = useMemo(() => calculateTournamentDelta(initial, toRatingRounds(player), k, RULESETS["fide-standard-2024"]), [initial, k, player]);
+  const performanceSummary = useMemo(() => playerPerformanceSummary(player, report), [player, report]);
   const lineOption: EChartsOption = {
     tooltip: { ...tooltip, trigger: "axis" }, grid: { left: 45, right: 18, top: 20, bottom: 35 },
     xAxis: { type: "category", data: [0, ...player.rounds.map((round) => round.round)], name: "Ronde", boundaryGap: false },
@@ -384,8 +481,8 @@ function PlayerReport({ report, id }: { report: NormalizedTournament; id?: strin
   };
   return <div className="report-page"><div className="breadcrumbs"><a href={`${BASE}/vue-ensemble`}>{report.report.title}</a><span>/</span><strong>{player.name}</strong></div>
     <div className="player-head"><div className="player-identity"><Avatar name={player.name}/><div><span className="status-pill">{player.category ?? "Participant"}</span><h1>{player.name}</h1><p>{player.club ?? "Club non indiqué"} · {player.federation ?? "Fédération non indiquée"} · {player.league ?? "Ligue non indiquée"}</p><small>Elo initial <strong>{player.rating ? formatNumber(player.rating) : "Non classé"}</strong></small></div></div><div className="player-nav"><a className="button secondary" href={playerHref(previous)}><ArrowLeft/>Précédent</a><select value={player.id} aria-label="Joueur courant" onChange={(event) => { const selectedPlayer = ordered.find((item) => item.id === event.target.value) ?? player; rememberPlayer(selectedPlayer, report.report.title); window.location.assign(playerHref(selectedPlayer)); }}>{ordered.map((item) => <option value={item.id} key={item.id}>{item.name}</option>)}</select><a className="button secondary" href={playerHref(next)}>Suivant<ArrowRight/></a></div></div>
-    <div className="kpi-grid five"><Kpi label="Score" value={`${formatScore(player.score)} / ${report.report.totalRounds}`} detail="Points du tournoi" tone="positive" icon={<Star/>}/><Kpi label="Classement final" value={`${player.rank}e / ${report.players.length}`} detail="Classement FFE" icon={<Trophy/>}/><Kpi label="Performance" value={player.performance ? formatNumber(player.performance) : "—"} detail={player.performance ? "Fournie par la FFE" : "Non disponible"} icon={<Gauge/>}/><Kpi label="Parties cotées" value={scenario.perRound.filter((round) => round.included).length} detail={`${player.rounds.length} rondes`} icon={<Check/>}/><Kpi label="Variation Elo estimée" value={player.rating ? signed(scenario.roundedTotalDelta, 0) : "—"} detail={player.rating ? `${formatNumber(initial)} → ${formatNumber(scenario.estimatedNewRating)}` : "Elo initial absent"} tone={scenario.roundedTotalDelta >= 0 ? "positive" : "negative"} icon={<BarChart3/>}/></div>
-    <div className="player-layout"><div className="player-main"><Card className="chart-card"><SectionTitle help="Estimation fondée uniquement sur les rondes jouées et cotées." action={<span className={`status-pill ${scenario.roundedTotalDelta >= 0 ? "success" : "danger"}`}>Final : {player.rating ? signed(scenario.roundedTotalDelta, 0) : "—"}</span>}>Variation Elo cumulée</SectionTitle><EChart option={lineOption} height={330} ariaLabel="Variation Elo cumulée"/></Card><PlayerRounds player={player} scenario={scenario}/></div><aside className="player-aside"><Card className="settings-card"><SectionTitle>Estimation Elo</SectionTitle><label>Classement avant le tournoi<input type="number" value={initial} min={800} max={3000} onChange={(event) => setInitial(Number(event.target.value) || 800)}/></label><span className="field-label">Coefficient K</span><div className="k-buttons">{[10,20,40].map((value) => <button className={k === value ? "selected" : ""} onClick={() => setK(value)} key={value}>{value}</button>)}<input aria-label="K personnalisé" value={k} type="number" min={1} max={100} onChange={(event) => setK(Number(event.target.value) || 20)}/></div><p className="field-help"><CircleAlert/>Vérifiez votre coefficient K sur votre fiche officielle.</p></Card><Card className="summary-card"><SectionTitle>Données de la source</SectionTitle><p>Le club vient de la liste des participants FFE ; le classement, le score, la performance et les rondes viennent de la grille américaine.</p><div className="key-takeaway"><Info/><span><strong>Limite</strong>Aucune conclusion n’est formulée sur la qualité des coups sans fichier de parties.</span></div></Card></aside></div>
+    <div className="kpi-grid five"><Kpi label="Score" value={`${formatScore(player.score)} / ${report.report.totalRounds}`} detail="Points du tournoi" tone="positive" icon={<Star/>}/><Kpi label="Classement final" value={`${player.rank}e / ${report.players.length}`} detail="Classement FFE" icon={<Trophy/>}/><Kpi label="Performance estimée" value={player.performance ? formatNumber(player.performance) : "—"} detail={player.performance ? "Calculée d’après les adversaires" : "Adversaires cotés insuffisants"} icon={<Gauge/>}/><Kpi label="Parties cotées" value={scenario.perRound.filter((round) => round.included).length} detail={`${player.rounds.length} rondes`} icon={<Check/>}/><Kpi label="Variation Elo estimée" value={player.rating ? signed(scenario.roundedTotalDelta, 0) : "—"} detail={player.rating ? `${formatNumber(initial)} → ${formatNumber(scenario.estimatedNewRating)}` : "Elo initial absent"} tone={scenario.roundedTotalDelta >= 0 ? "positive" : "negative"} icon={<BarChart3/>}/></div>
+    <div className="player-layout"><div className="player-main"><Card className="chart-card"><SectionTitle help="Estimation fondée uniquement sur les rondes jouées et cotées." action={<span className={`status-pill ${scenario.roundedTotalDelta >= 0 ? "success" : "danger"}`}>Final : {player.rating ? signed(scenario.roundedTotalDelta, 0) : "—"}</span>}>Variation Elo cumulée</SectionTitle><EChart option={lineOption} height={330} ariaLabel="Variation Elo cumulée"/></Card><PlayerRounds player={player} scenario={scenario}/></div><aside className="player-aside"><Card className="settings-card"><SectionTitle>Estimation Elo</SectionTitle><label>Classement avant le tournoi<input type="number" value={initial} min={800} max={3000} onChange={(event) => setInitial(Number(event.target.value) || 800)}/></label><span className="field-label">Coefficient K</span><div className="k-buttons">{[10,20,40].map((value) => <button className={k === value ? "selected" : ""} onClick={() => setK(value)} key={value}>{value}</button>)}<input aria-label="K personnalisé" value={k} type="number" min={1} max={100} onChange={(event) => setK(Number(event.target.value) || 20)}/></div><p className="field-help"><CircleAlert/>Vérifiez votre coefficient K sur votre fiche officielle.</p></Card><Card className="summary-card"><SectionTitle>Résumé du parcours</SectionTitle>{performanceSummary.map((paragraph) => <p key={paragraph}>{paragraph}</p>)}</Card></aside></div>
     <p className="rating-disclaimer">Cette estimation porte uniquement sur les parties disponibles dans ce rapport. Le classement officiellement publié peut différer selon les règles applicables et l’homologation effective des parties.</p>
   </div>;
 }
@@ -515,5 +612,5 @@ function RecentPage({ report }: { report: NormalizedTournament | null }) {
 }
 
 function MethodPage() {
-  return <div className="narrow-page"><div className="page-heading"><span className="eyebrow">Méthode transparente</span><h1>À propos des calculs Elo</h1><p>EloScope produit une estimation reproductible à partir des résultats importés.</p></div><Card className="prose-card"><h2>Source des données</h2><p>Les clubs viennent de la liste officielle des participants FFE. Les classements, scores, performances et rondes viennent de la grille américaine du même tournoi.</p><h2>Variation par partie</h2><p><code>coefficient K × (score réalisé − score attendu)</code></p><p>Les parties non jouées, adversaires sans Elo, exempts et forfaits sont exclus du calcul.</p><div className="notice warning"><CircleAlert/><p>Vérifiez toujours votre coefficient K et le classement officiellement publié.</p></div></Card></div>;
+  return <div className="narrow-page"><div className="page-heading"><span className="eyebrow">Méthode transparente</span><h1>À propos des calculs Elo</h1><p>EloScope produit une estimation reproductible à partir des résultats importés.</p></div><Card className="prose-card"><h2>Source des données</h2><p>Les clubs viennent de la liste officielle des participants FFE. Les classements, scores et rondes viennent de la grille américaine du même tournoi. Lorsqu’elle n’est pas publiée, la performance est estimée à partir des résultats et des Elo adverses.</p><h2>Variation par partie</h2><p><code>coefficient K × (score réalisé − score attendu)</code></p><p>Les parties non jouées, adversaires sans Elo, exempts et forfaits sont exclus du calcul.</p><div className="notice warning"><CircleAlert/><p>Vérifiez toujours votre coefficient K et le classement officiellement publié.</p></div></Card></div>;
 }

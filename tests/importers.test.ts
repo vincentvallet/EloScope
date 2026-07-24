@@ -91,4 +91,24 @@ describe("import FFE", () => {
     expect(parsed.rows).toEqual([]);
     expect(parsed.warnings[0]).toContain("Aucune grille américaine");
   });
+
+  it("calcule une performance et des départages lorsque la FFE ne les publie pas", () => {
+    const normalized = new FfeResultsAdapter().normalize({
+      title: "Tournoi sans colonnes calculées",
+      currentRound: 1,
+      headers: ["Pl", "Nom", "Rapide", "R 1", "Pts"],
+      rows: [
+        ["1", "Alice", "1800", "+ 2B", "1"],
+        ["2", "Bruno", "1700", "- 1N", "0"],
+      ],
+      warnings: [],
+    });
+    expect(normalized.players.every((player) => player.performance != null)).toBe(true);
+    expect(normalized.players[0].tieBreaks).toMatchObject({
+      "Buchholz calculé": 0,
+      "Sonneborn-Berger calculé": 0,
+      "Progressif calculé": 1,
+    });
+    expect(normalized.players[1].tieBreaks["Buchholz calculé"]).toBe(1);
+  });
 });

@@ -7,6 +7,7 @@ import type {
   RawTournamentSource,
   TournamentSourceAdapter,
 } from "./types";
+import { estimatePerformance } from "@/lib/rating/engine";
 
 const ALLOWED_HOSTS = new Set(["echecs.asso.fr", "www.echecs.asso.fr"]);
 const MAX_BYTES = 2_000_000;
@@ -286,7 +287,7 @@ export class FfeResultsAdapter implements TournamentSourceAdapter {
     const scoreIndex = find(/^pts/);
     const performanceIndex = find(/^perf/);
     const tieBreakIndexes = parsed.headers
-      .map((header, index) => (/^(tr\.|cu\.|buch)/i.test(header) ? index : -1))
+      .map((header, index) => (/^(tr\.?|cu\.?|buch|bu\.?|sb|sonn|pro|dep)/i.test(header) ? index : -1))
       .filter((index) => index >= 0);
     const roundIndexes = parsed.headers
       .map((header, index) => (/^R\s*\d+$/i.test(header) ? index : -1))
@@ -327,6 +328,41 @@ export class FfeResultsAdapter implements TournamentSourceAdapter {
           round.opponentName = opponent.name;
           round.opponentRating = opponent.rating;
         }
+      }
+      if (player.performance == null) {
+        player.performance = estimatePerformance(player.rounds.map((round) => ({
+          round: round.round,
+          opponentName: round.opponentName,
+          opponentRating: round.opponentRating,
+          color: round.color === "WHITE" ? "WHITE" : round.color === "BLACK" ? "BLACK" : "UNKNOWN",
+          result: round.result,
+          tournamentPoints: round.result ?? 0,
+          played: round.played,
+          rated: round.played && round.opponentRating != null,
+          bye: !round.played && /exempt/i.test(round.notation),
+          forfeit: !round.played && /forfait|[<>]/i.test(round.notation),
+          sourceNotation: round.notation,
+        })));
+      }
+      if (!Object.keys(player.tieBreaks).length) {
+        let progressive = 0;
+        let cumulative = 0;
+        let buchholz = 0;
+        let sonnebornBerger = 0;
+        for (const round of player.rounds) {
+          cumulative += round.result ?? 0;
+          progressive += cumulative;
+          const opponent = round.opponentRank ? byRank.get(round.opponentRank) : undefined;
+          if (opponent && round.played) {
+            buchholz += opponent.score;
+            sonnebornBerger += opponent.score * (round.result ?? 0);
+          }
+        }
+        player.tieBreaks = {
+          "Buchholz calculé": Number(buchholz.toFixed(2)),
+          "Sonneborn-Berger calculé": Number(sonnebornBerger.toFixed(2)),
+          "Progressif calculé": Number(progressive.toFixed(2)),
+        };
       }
     }
 
