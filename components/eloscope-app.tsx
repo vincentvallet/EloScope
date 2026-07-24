@@ -318,7 +318,11 @@ export function EloScopeApp() {
           })}
         </nav>
         <div className="sidebar-section"><span>Session</span><a href="/rapports-recents"><Clock3 size={16}/>Historique récent</a></div>
-        {report && <div className="sidebar-recents"><a href={`${BASE}/vue-ensemble`}><span className="file-icon">F</span><span><b>{report.report.title}</b><small>Source FFE</small></span></a></div>}
+        {reports.length > 0 && <div className="sidebar-recents" aria-label="Tournois de la session">{reports.map((item) =>
+          <a href={`${BASE}/vue-ensemble`} className={report && reportKey(item) === reportKey(report) ? "active" : ""} onClick={() => setReport(item)} key={reportKey(item)}>
+            <span className="file-icon">F</span><span><b>{item.report.title}</b><small>{item.players.length} joueurs · {item.report.totalRounds} rondes</small></span>
+          </a>
+        )}</div>}
         <div className="sidebar-bottom">
           <a href="/a-propos-elo"><HelpCircle size={17}/>À propos des calculs Elo</a>
           <a href="/parametres"><Settings size={17}/>Paramètres</a>
@@ -363,7 +367,7 @@ function PageRouter({
   setReport: (report: NormalizedTournament) => void;
 }) {
   if (!ready) return <div className="narrow-page"><Card className="empty-state"><strong>Chargement du rapport…</strong></Card></div>;
-  if (pathname === "/") return <HomePage report={report} setReport={setReport}/>;
+  if (pathname === "/") return <HomePage reports={reports} setReport={setReport}/>;
   if (pathname === "/importer") return <ImportPage setReport={setReport}/>;
   if (pathname === "/rapports-recents") return <RecentPage reports={reports} setReport={setReport}/>;
   if (pathname === "/a-propos-elo") return <MethodPage/>;
@@ -373,10 +377,10 @@ function PageRouter({
   if (pathname.endsWith("/clubs")) return <ClubsPage report={report}/>;
   if (pathname.endsWith("/rondes")) return <RoundsPage report={report}/>;
   if (pathname.startsWith("/tournoi/")) return <TournamentOverview report={report}/>;
-  return <HomePage report={report} setReport={setReport}/>;
+  return <HomePage reports={reports} setReport={setReport}/>;
 }
 
-function HomePage({ report, setReport }: { report: NormalizedTournament | null; setReport: (report: NormalizedTournament) => void }) {
+function HomePage({ reports, setReport }: { reports: NormalizedTournament[]; setReport: (report: NormalizedTournament) => void }) {
   return (
     <div className="home-page">
       <section className="hero">
@@ -385,15 +389,15 @@ function HomePage({ report, setReport }: { report: NormalizedTournament | null; 
         <p>Collez le lien de la fiche tournoi : EloScope récupère la liste des participants, leurs clubs et la grille américaine.</p>
         <ImportPanel compact setReport={setReport}/>
       </section>
-      {report && <div className="home-section">
-        <SectionTitle>Dernier rapport importé</SectionTitle>
-        <div className="report-grid single">
-          <a href={`${BASE}/vue-ensemble`} className="report-card">
+      {reports.length > 0 && <div className="home-section">
+        <SectionTitle>Derniers rapports importés</SectionTitle>
+        <div className="report-grid">
+          {reports.map((storedReport) => <a href={`${BASE}/vue-ensemble`} className="report-card" onClick={() => setReport(storedReport)} key={reportKey(storedReport)}>
             <div className="report-badge"><Trophy/></div><span className="status-pill success"><Check/>FFE</span>
-            <h3>{report.report.title}</h3>
-            <p><Users size={15}/>{report.players.length} joueurs · {report.report.currentRound} rondes disponibles</p>
-            <small>Importé le {new Date(report.report.importedAt).toLocaleString("fr-FR", { timeZone: "Europe/Paris" })}</small>
-          </a>
+            <h3>{storedReport.report.title}</h3>
+            <p><Users size={15}/>{storedReport.players.length} joueurs · {storedReport.report.currentRound} rondes disponibles</p>
+            <small>Importé le {new Date(storedReport.report.importedAt).toLocaleString("fr-FR", { timeZone: "Europe/Paris" })}</small>
+          </a>)}
         </div>
       </div>}
     </div>

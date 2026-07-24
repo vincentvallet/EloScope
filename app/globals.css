@@ -29,9 +29,9 @@ svg{flex:0 0 auto}
 .sidebar nav a.active{background:var(--brand-soft);color:#0D6078;font-weight:700}
 .sidebar-section{border-top:1px solid var(--border);margin-top:14px;padding-top:18px;display:grid;gap:2px}
 .sidebar-section>span{font-size:11px;text-transform:uppercase;letter-spacing:.08em;color:var(--muted);font-weight:750;padding:0 12px 8px}
-.sidebar-recents{display:grid;gap:4px;margin:12px 4px}
+.sidebar-recents{display:grid;gap:4px;margin:12px 4px;max-height:260px;overflow-y:auto;scrollbar-width:thin}
 .sidebar-recents>a{display:flex;gap:9px;padding:9px;border-radius:8px}
-.sidebar-recents>a:hover{background:var(--surface-subtle)}
+.sidebar-recents>a:hover,.sidebar-recents>a.active{background:var(--surface-subtle)}
 .file-icon{width:28px;height:28px;border-radius:7px;display:grid;place-items:center;background:var(--brand-soft);color:var(--brand);font-weight:800}
 .sidebar-recents span span,.sidebar-recents>a>span:last-child{display:grid;min-width:0}.sidebar-recents b{font-size:12px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}.sidebar-recents small{color:var(--muted);font-size:10px;margin-top:2px}
 .sidebar-bottom{margin-top:auto;display:grid;gap:2px}.sidebar-bottom a{min-height:39px;font-size:13px}
