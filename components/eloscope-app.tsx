@@ -1,6 +1,7 @@
 "use client";
 
 import { useEffect, useMemo, useState } from "react";
+import Image from "next/image";
 import { usePathname } from "next/navigation";
 import type { EChartsOption } from "echarts";
 import {
@@ -255,8 +256,7 @@ export function EloScopeApp() {
     <div className="app-shell">
       <aside className={`sidebar ${mobileOpen ? "open" : ""}`}>
         <a className="brand" href="/" aria-label="EloScope, accueil">
-          <span className="brand-mark"><Target size={24}/><span>♜</span></span>
-          <strong>EloScope</strong>
+          <Image className="brand-logo" src="/eloscope-logo.png" alt="" width={585} height={217} priority />
         </a>
         <nav aria-label="Navigation principale">
           {navigation.map((item) => {
