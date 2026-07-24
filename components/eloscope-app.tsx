@@ -408,20 +408,91 @@ function ClubsPage({ report }: { report: NormalizedTournament }) {
       groups.set(player.club, [...(groups.get(player.club) ?? []), player]);
     }
     return [...groups.entries()]
-      .map(([name, players]) => ({ name, players: players.sort((a, b) => a.rank - b.rank) }))
-      .sort((a, b) => b.players.length - a.players.length || a.name.localeCompare(b.name, "fr"));
-  }, [report.players]);
+      .map(([name, players]) => {
+        const ordered = players.sort((a, b) => a.rank - b.rank);
+        const performances = ordered.filter((player) => player.performance != null).map((player) => player.performance!);
+        const ratings = ordered.filter((player) => player.rating != null).map((player) => player.rating!);
+        const relativePerformances = ordered
+          .filter((player) => player.performance != null && player.rating != null)
+          .map((player) => player.performance! - player.rating!);
+        const estimatedDeltas = ordered
+          .filter((player) => player.rating != null)
+          .map((player) => calculateTournamentDelta(player.rating!, toRatingRounds(player), 20).roundedTotalDelta);
+        const rounds = ordered.flatMap((player) => player.rounds).filter((round) => round.played);
+        const totalScore = ordered.reduce((sum, player) => sum + player.score, 0);
+        const average = (values: number[]) => values.length ? values.reduce((sum, value) => sum + value, 0) / values.length : null;
+        return {
+          name,
+          players: ordered,
+          totalScore,
+          averageScore: ordered.length ? totalScore / ordered.length : 0,
+          scorePercent: ordered.length && report.report.totalRounds ? totalScore / (ordered.length * report.report.totalRounds) * 100 : 0,
+          averageRating: average(ratings),
+          averagePerformance: average(performances),
+          performanceDelta: average(relativePerformances),
+          estimatedEloDelta: average(estimatedDeltas),
+          wins: rounds.filter((round) => round.result === 1).length,
+          draws: rounds.filter((round) => round.result === 0.5).length,
+          losses: rounds.filter((round) => round.result === 0).length,
+          bestPlayer: [...ordered].sort((a, b) => b.score - a.score || a.rank - b.rank)[0],
+        };
+      })
+      .sort((a, b) => b.scorePercent - a.scorePercent || (b.performanceDelta ?? -Infinity) - (a.performanceDelta ?? -Infinity) || b.players.length - a.players.length);
+  }, [report.players, report.report.totalRounds]);
   const withClub = clubs.reduce((sum, club) => sum + club.players.length, 0);
+  const chartClubs = clubs.slice(0, 12).reverse();
+  const scoreOption: EChartsOption = {
+    tooltip: { ...tooltip, trigger: "axis", valueFormatter: (value) => `${formatNumber(Number(value))} %` },
+    grid: { left: 175, right: 35, top: 18, bottom: 35 },
+    xAxis: { type: "value", min: 0, max: 100, axisLabel: { formatter: "{value} %" } },
+    yAxis: { type: "category", data: chartClubs.map((club) => club.name), axisLabel: { width: 155, overflow: "truncate" } },
+    series: [{ type: "bar", data: chartClubs.map((club) => Number(club.scorePercent.toFixed(1))), barWidth: 16, itemStyle: { color: "#2B8295", borderRadius: [0, 5, 5, 0] }, label: { show: true, position: "right", formatter: "{c} %" } }],
+  };
+  const performanceClubs = clubs.filter((club) => club.performanceDelta != null).slice(0, 12).reverse();
+  const performanceOption: EChartsOption = {
+    tooltip: { ...tooltip, trigger: "axis", valueFormatter: (value) => `${Number(value) >= 0 ? "+" : ""}${formatNumber(Number(value))} Elo` },
+    grid: { left: 175, right: 45, top: 18, bottom: 35 },
+    xAxis: { type: "value", axisLabel: { formatter: "{value}" } },
+    yAxis: { type: "category", data: performanceClubs.map((club) => club.name), axisLabel: { width: 155, overflow: "truncate" } },
+    series: [{ type: "bar", data: performanceClubs.map((club) => ({ value: Number(club.performanceDelta!.toFixed(1)), itemStyle: { color: club.performanceDelta! >= 0 ? "#23855B" : "#D04C4C" } })), barWidth: 16, label: { show: true, position: "right", formatter: (params) => { const value = Number(params.value); return `${value >= 0 ? "+" : ""}${value}`; } } }],
+  };
+  const scatterClubs = clubs.filter((club) => club.averageRating != null && club.averagePerformance != null);
+  const strengthOption: EChartsOption = {
+    tooltip: { ...tooltip, formatter: (params) => {
+      const item = params as { name?: string; value?: unknown };
+      const value = Array.isArray(item.value) ? item.value as number[] : [];
+      return `${item.name ?? "Club"}<br/>Elo moyen : ${formatNumber(value[0] ?? 0)}<br/>Performance moyenne : ${formatNumber(value[1] ?? 0)}`;
+    } },
+    grid: { left: 55, right: 25, top: 28, bottom: 48 },
+    xAxis: { type: "value", name: "Elo moyen", nameLocation: "middle", nameGap: 30 },
+    yAxis: { type: "value", name: "Performance moyenne" },
+    series: [{
+      type: "scatter",
+      data: scatterClubs.map((club) => ({ name: club.name, value: [Number(club.averageRating!.toFixed(0)), Number(club.averagePerformance!.toFixed(0))], symbolSize: Math.min(34, 10 + club.players.length * 2) })),
+      itemStyle: { color: "#356B82", opacity: 0.78 },
+    }],
+  };
+  const bestScoreClub = clubs[0];
+  const bestPerformanceClub = [...clubs].filter((club) => club.performanceDelta != null).sort((a, b) => b.performanceDelta! - a.performanceDelta!)[0];
+  const bestEloClub = [...clubs].filter((club) => club.estimatedEloDelta != null).sort((a, b) => b.estimatedEloDelta! - a.estimatedEloDelta!)[0];
   return <div className="report-page"><TournamentHeader report={report} active="clubs"/>
     <div className="kpi-grid five">
       <Kpi label="Clubs représentés" value={clubs.length} detail="Source : liste des participants" icon={<Building2/>}/>
       <Kpi label="Joueurs rattachés" value={withClub} detail={`${report.players.length - withClub} sans club indiqué`} icon={<Users/>}/>
-      <Kpi label="Club le plus représenté" value={clubs[0]?.players.length ?? 0} detail={clubs[0]?.name ?? "Aucun club"} icon={<Trophy/>}/>
+      <Kpi label="Meilleur score moyen" value={bestScoreClub ? `${formatNumber(bestScoreClub.scorePercent)} %` : "—"} detail={bestScoreClub?.name ?? "Aucun club"} tone="positive" icon={<Trophy/>}/>
+      <Kpi label="Meilleure perf. relative" value={bestPerformanceClub ? signed(bestPerformanceClub.performanceDelta!, 0) : "—"} detail={bestPerformanceClub?.name ?? "Donnée absente"} tone="positive" icon={<Gauge/>}/>
+      <Kpi label="Meilleure variation Elo" value={bestEloClub ? signed(bestEloClub.estimatedEloDelta!, 1) : "—"} detail={bestEloClub?.name ?? "Donnée absente"} tone="positive" icon={<BarChart3/>}/>
     </div>
     {clubs.length ? <>
+      <div className="dashboard-grid two">
+        <Card className="chart-card"><SectionTitle help="Score total du club divisé par le nombre de joueurs et de rondes.">Score moyen par club</SectionTitle><EChart option={scoreOption} height={Math.max(330, chartClubs.length * 31)} ariaLabel="Classement des clubs par score moyen"/></Card>
+        <Card className="chart-card"><SectionTitle help="Moyenne de la performance FFE moins l’Elo initial, uniquement lorsque les deux valeurs sont disponibles.">Performance relative moyenne</SectionTitle><EChart option={performanceOption} height={Math.max(330, performanceClubs.length * 31)} ariaLabel="Performance relative moyenne des clubs"/></Card>
+      </div>
+      <Card className="chart-card wide"><SectionTitle help="Chaque point est un club. Sa taille représente le nombre de joueurs.">Niveau initial et performance obtenue</SectionTitle><EChart option={strengthOption} height={360} ariaLabel="Elo moyen comparé à la performance moyenne des clubs"/></Card>
+      <Card className="table-card"><SectionTitle help="Classement ordonné par score moyen, puis par performance relative moyenne.">Classement des performances des clubs</SectionTitle><div className="table-scroll always"><table><thead><tr><th>Rang</th><th>Club</th><th>Joueurs</th><th>Score moyen</th><th>V-N-D</th><th>Elo moyen</th><th>Perf. moyenne</th><th>Perf. / Elo</th><th>Var. Elo estimée</th><th>Meilleur joueur</th></tr></thead><tbody>{clubs.map((club, index) => <tr key={club.name}><td><span className={`rank rank-${index + 1}`}>{index + 1}</span></td><td><strong>{club.name}</strong></td><td>{club.players.length}</td><td><strong>{formatNumber(club.averageScore)} / {report.report.totalRounds}</strong><small>{formatNumber(club.scorePercent)} %</small></td><td>{club.wins}-{club.draws}-{club.losses}</td><td>{club.averageRating == null ? "—" : formatNumber(club.averageRating)}</td><td>{club.averagePerformance == null ? "—" : formatNumber(club.averagePerformance)}</td><td className={(club.performanceDelta ?? 0) >= 0 ? "positive-text" : "negative-text"}>{club.performanceDelta == null ? "—" : signed(club.performanceDelta, 0)}</td><td className={(club.estimatedEloDelta ?? 0) >= 0 ? "positive-text" : "negative-text"}>{club.estimatedEloDelta == null ? "—" : signed(club.estimatedEloDelta, 1)}</td><td>{club.bestPlayer?.name ?? "—"}</td></tr>)}</tbody></table></div></Card>
       <div className="club-grid">{clubs.map((club) => <article className="club-card" key={club.name}>
         <span className="club-icon"><Building2/></span>
-        <div><h3>{club.name}</h3><p>{club.players.length} joueur{club.players.length > 1 ? "s" : ""}</p><small>{club.players.slice(0, 3).map((player) => player.name).join(" · ")}{club.players.length > 3 ? "…" : ""}</small></div>
+        <div><h3>{club.name}</h3><p>{club.players.length} joueur{club.players.length > 1 ? "s" : ""} · {formatNumber(club.scorePercent)} %</p><small>{club.players.slice(0, 3).map((player) => player.name).join(" · ")}{club.players.length > 3 ? "…" : ""}</small></div>
       </article>)}</div>
       <Card className="table-card"><SectionTitle>Liste complète des joueurs par club</SectionTitle><div className="table-scroll always"><table><thead><tr><th>Club</th><th>Joueur</th><th>Elo</th><th>Classement</th><th>Score</th></tr></thead><tbody>{clubs.flatMap((club) => club.players.map((player) => <tr key={`${club.name}-${player.id}`} onClick={() => { rememberPlayer(player, report.report.title); window.location.assign(playerHref(player)); }}><td><strong>{club.name}</strong></td><td>{player.name}</td><td>{player.rating ?? "NC"}</td><td>{player.rank}</td><td>{formatScore(player.score)} / {report.report.totalRounds}</td></tr>))}</tbody></table></div></Card>
     </> : <EmptyState title="Aucun club trouvé">La liste des participants FFE ne contient aucun club exploitable pour ce tournoi.</EmptyState>}

@@ -2,6 +2,8 @@
 
 EloScope transforme la fiche officielle d’un tournoi de la Fédération Française des Échecs en rapports visuels pour les joueurs, clubs, entraîneurs et organisateurs. Le MVP fusionne la liste des participants avec la grille américaine et fournit des vues tournoi, joueur, club et rondes, ainsi qu’un moteur Elo configurable.
 
+Le rapport clubs compare les associations à partir de leurs données réelles : score moyen, bilan victoires-nulles-défaites, Elo et performance moyens, écart performance/Elo et variation Elo estimée. Le classement principal est ordonné par score moyen, puis par performance relative.
+
 ## Stack
 
 - Next.js App Router, React, TypeScript strict et Tailwind CSS
