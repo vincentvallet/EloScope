@@ -1,6 +1,6 @@
 # EloScope
 
-EloScope transforme une grille américaine officielle de la Fédération Française des Échecs en rapports visuels pour les joueurs, clubs, entraîneurs et organisateurs. Le MVP est en français et fournit des vues tournoi, joueur, rondes et comparaison, ainsi qu’un moteur Elo configurable.
+EloScope transforme la fiche officielle d’un tournoi de la Fédération Française des Échecs en rapports visuels pour les joueurs, clubs, entraîneurs et organisateurs. Le MVP fusionne la liste des participants avec la grille américaine et fournit des vues tournoi, joueur, club et rondes, ainsi qu’un moteur Elo configurable.
 
 ## Stack
 
@@ -43,17 +43,17 @@ La seule variable nécessaire est :
 DATABASE_URL="file:./dev.db"
 ```
 
-Le schéma Prisma prépare le stockage de rapports normalisés versionnés. Dans le MVP, le dernier tournoi importé est conservé localement dans le navigateur.
+Le schéma Prisma prépare le stockage de rapports normalisés versionnés. Dans le MVP, aucun tournoi n’est préchargé. Le rapport courant et l’historique récent restent uniquement dans la session de l’onglet du navigateur.
 
 ## Tester les imports
 
-- FFE : coller une URL HTTPS de résultats du domaine `echecs.asso.fr`.
-- Un lien de classement contenant `Action=Cl` est automatiquement converti vers la grille américaine `Action=Ga`.
-- La récupération est exécutée côté serveur avec liste blanche, suivi manuel des redirections, timeout, contrôle de contenu et limite de taille.
+- FFE : coller une fiche tournoi HTTPS, par exemple `https://echecs.asso.fr/FicheTournoi.aspx?Ref=70244`.
+- EloScope déduit la liste officielle des participants (`Action=Ls`) et la grille américaine (`Action=Ga`), puis rattache les clubs aux joueurs par leur nom normalisé.
+- La récupération est exécutée côté serveur avec liste blanche, timeout, contrôle de contenu et limite de taille.
 
 ## Exports
 
-Les vues classement, joueur, club et comparaison exportent les tableaux en CSV. Le rapport complet peut être exporté en JSON normalisé (`schemaVersion: 1.0`). Le bouton PDF utilise une vue d’impression dédiée : choisir ensuite « Enregistrer au format PDF » dans la boîte de dialogue du navigateur.
+La vue classement exporte les joueurs et leurs clubs en CSV. Le bouton PDF utilise une vue d’impression dédiée : choisir ensuite « Enregistrer au format PDF » dans la boîte de dialogue du navigateur.
 
 ## Déploiement Netlify
 
@@ -70,7 +70,7 @@ Définir `DATABASE_URL` dans l’environnement du site si la persistance Prisma 
 - Le parseur FFE est volontairement prudent et peut signaler les grilles dont le balisage sort des variantes testées.
 - Chess-Results est préparé comme adaptateur désactivé, sans récupération agressive.
 - L’export PDF repose sur l’impression navigateur, sans moteur PDF serveur.
-- Les favoris et récents sont locaux tant qu’aucun compte n’existe.
+- L’historique de tournois et de joueurs est limité à la session de l’onglet et disparaît à sa fermeture.
 - Les variations Elo sont des estimations ; l’homologation et le coefficient K officiel restent à vérifier.
 
 EloScope n’embarque aucune donnée de tournoi ou de joueur fictive.

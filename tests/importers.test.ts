@@ -1,5 +1,12 @@
 import { describe, expect, it } from "vitest";
-import { americanGridUrl, FfeResultsAdapter, parseFfeHtml, validateFfeUrl } from "@/lib/importers/ffe";
+import {
+  americanGridUrl,
+  FfeResultsAdapter,
+  parseFfeHtml,
+  parseFfeParticipants,
+  tournamentSourceUrls,
+  validateFfeUrl,
+} from "@/lib/importers/ffe";
 
 const gridFixture = `
 <table><tbody>
@@ -20,6 +27,20 @@ const gridFixture = `
   </tr>
 </tbody></table>`;
 
+const participantsFixture = `
+<table><tbody>
+  <tr class="papi_titre"><td colspan="8">Open officiel 2026<br>Liste des participants</td></tr>
+  <tr class="papi_liste_t">
+    <td>Nr</td><td>&nbsp;</td><td>Nom</td><td>Rapide</td><td>Cat.</td><td>Fede</td><td>Ligue</td><td>Club</td>
+  </tr>
+  <tr class="papi_liste_f">
+    <td>1</td><td></td><td>Élodie Martin</td><td>1842 F</td><td>SenF</td><td><img src="flags/FRA.GIF"></td><td>HDF</td><td>Échiquier du Nord</td>
+  </tr>
+  <tr class="papi_liste_c">
+    <td>2</td><td></td><td>Hugo Bernard</td><td>1798 F</td><td>SenM</td><td><img src="flags/BEL.GIF"></td><td>HDF</td><td>Club de Lille</td>
+  </tr>
+</tbody></table>`;
+
 describe("import FFE", () => {
   it("refuse les domaines et protocoles non autorisés", () => {
     expect(() => validateFfeUrl("http://127.0.0.1/results")).toThrow();
@@ -32,6 +53,13 @@ describe("import FFE", () => {
     expect(url.searchParams.get("Action")).toBe("Ga");
   });
 
+  it("dérive la liste des participants et la grille depuis la fiche tournoi", () => {
+    const urls = tournamentSourceUrls("https://echecs.asso.fr/FicheTournoi.aspx?Ref=70244");
+    expect(urls.participants.searchParams.get("Action")).toBe("Ls");
+    expect(urls.grid.searchParams.get("Action")).toBe("Ga");
+    expect(urls.grid.searchParams.get("URL")).toBe("Tournois/Id/70244/70244");
+  });
+
   it("parse la structure FFE, les accents, fédérations, demi-points et rondes", async () => {
     const parsed = parseFfeHtml(gridFixture);
     expect(parsed.title).toBe("Open officiel 2026");
@@ -39,11 +67,14 @@ describe("import FFE", () => {
     expect(parsed.rows[0][2]).toBe("Élodie Martin");
     expect(parsed.rows[0][5]).toBe("FRA");
 
-    const normalized = new FfeResultsAdapter().normalize(parsed);
+    const participants = parseFfeParticipants(participantsFixture);
+    expect(participants[0]).toMatchObject({ name: "Élodie Martin", club: "Échiquier du Nord" });
+    const normalized = new FfeResultsAdapter().normalize({ ...parsed, participants });
     expect(normalized.players[0]).toMatchObject({
       name: "Élodie Martin",
       rating: 1842,
       federation: "FRA",
+      club: "Échiquier du Nord",
       score: 1.5,
       performance: 1920,
     });

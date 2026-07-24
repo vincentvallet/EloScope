@@ -2,6 +2,7 @@ import type {
   ImportedPlayer,
   ImportedRound,
   NormalizedTournament,
+  ParsedParticipant,
   ParsedTournament,
   RawTournamentSource,
   TournamentSourceAdapter,
@@ -19,12 +20,28 @@ export function validateFfeUrl(input: string) {
   return url;
 }
 
-export function americanGridUrl(input: string) {
+export function tournamentSourceUrls(input: string) {
   const url = validateFfeUrl(input);
-  if (/\/Resultats\.aspx$/i.test(url.pathname) && url.searchParams.has("URL")) {
-    url.searchParams.set("Action", "Ga");
+  let tournamentId = "";
+  if (/\/FicheTournoi\.aspx$/i.test(url.pathname)) {
+    tournamentId = url.searchParams.get("Ref") ?? "";
+  } else if (/\/Resultats\.aspx$/i.test(url.pathname)) {
+    tournamentId = url.searchParams.get("URL")?.match(/Tournois\/Id\/(\d+)\//i)?.[1] ?? "";
   }
-  return url;
+  if (!/^\d+$/.test(tournamentId)) {
+    throw new Error("Utilisez le lien de la fiche du tournoi FFE (FicheTournoi.aspx?Ref=…).");
+  }
+  const base = `${url.origin}/Resultats.aspx?URL=Tournois/Id/${tournamentId}/${tournamentId}`;
+  return {
+    tournamentId,
+    fiche: new URL(`${url.origin}/FicheTournoi.aspx?Ref=${tournamentId}`),
+    participants: new URL(`${base}&Action=Ls`),
+    grid: new URL(`${base}&Action=Ga`),
+  };
+}
+
+export function americanGridUrl(input: string) {
+  return tournamentSourceUrls(input).grid;
 }
 
 function cleanText(value: string) {
@@ -140,6 +157,68 @@ export function parseFfeHtml(html: string): ParsedTournament {
   return { title, currentRound, headers, rows, warnings };
 }
 
+export function parseFfeParticipants(html: string): ParsedParticipant[] {
+  const listPosition = html.search(/liste des participants/i);
+  if (listPosition < 0) return [];
+  const table = findBalancedTable(html, listPosition);
+  const rowsHtml = directRows(table);
+  const headerRow = rowsHtml.find((row) => /papi_liste_t/i.test(row)) ?? "";
+  const headers = directCells(headerRow).map(cleanText);
+  const normalizedHeaders = headers.map((header) =>
+    header.normalize("NFD").replace(/\p{Diacritic}/gu, "").toLowerCase()
+  );
+  const find = (...patterns: RegExp[]) =>
+    normalizedHeaders.findIndex((header) => patterns.some((pattern) => pattern.test(header)));
+  const nameIndex = find(/^nom$/);
+  const ratingIndex = find(/^elo$/, /standard/, /rapide/, /blitz/);
+  const categoryIndex = find(/^cat/);
+  const federationIndex = find(/^fede/);
+  const leagueIndex = find(/^ligue/);
+  const clubIndex = find(/^club$/);
+
+  return rowsHtml
+    .filter((row) => /papi_liste_[fc]/i.test(row))
+    .map((row) => directCells(row).map((cell, index) => cellText(cell, headers[index] ?? "")))
+    .filter((row) => nameIndex >= 0 && !!row[nameIndex])
+    .map((row) => ({
+      name: row[nameIndex],
+      rating: Number((row[ratingIndex] ?? "").match(/\d+/)?.[0]) || undefined,
+      category: row[categoryIndex] || undefined,
+      federation: row[federationIndex] || undefined,
+      league: row[leagueIndex] || undefined,
+      club: row[clubIndex] || undefined,
+    }));
+}
+
+function normalizedPlayerName(value: string) {
+  return value.normalize("NFD").replace(/\p{Diacritic}/gu, "").replace(/\s+/g, " ").trim().toLocaleLowerCase("fr");
+}
+
+async function fetchFfePage(url: URL, signal: AbortSignal) {
+  const response = await fetch(url, {
+    redirect: "follow",
+    headers: {
+      accept: "text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8",
+      "accept-language": "fr-FR,fr;q=0.9",
+      "user-agent": "Mozilla/5.0 (compatible; EloScope/1.0; +https://echecs.asso.fr/)",
+    },
+    signal,
+  });
+  validateFfeUrl(response.url);
+  if (!response.ok) throw new Error(`La source FFE ne répond pas actuellement (${response.status}).`);
+  const contentType = response.headers.get("content-type") ?? "";
+  if (!contentType.includes("text/html") && !contentType.includes("application/xhtml+xml")) {
+    throw new Error("La page reçue n’est pas une page HTML FFE.");
+  }
+  const declared = Number(response.headers.get("content-length") ?? 0);
+  if (declared > MAX_BYTES) throw new Error("La page FFE dépasse la taille autorisée.");
+  const content = await response.text();
+  if (new TextEncoder().encode(content).byteLength > MAX_BYTES) {
+    throw new Error("La page FFE dépasse la taille autorisée.");
+  }
+  return content;
+}
+
 function parseRound(notation: string, round: number): ImportedRound {
   const compact = cleanText(notation);
   const opponentRank = Number(compact.match(/(\d+)/)?.[1] ?? 0) || undefined;
@@ -165,40 +244,31 @@ export class FfeResultsAdapter implements TournamentSourceAdapter {
   }
 
   async fetchSource(input: string): Promise<RawTournamentSource> {
-    const current = americanGridUrl(input);
+    const urls = tournamentSourceUrls(input);
     const controller = new AbortController();
     const timeout = setTimeout(() => controller.abort(), 10_000);
-    let response: Response;
-
     try {
-      response = await fetch(current, {
-        redirect: "follow",
-        headers: {
-          accept: "text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8",
-          "accept-language": "fr-FR,fr;q=0.9",
-          "user-agent": "Mozilla/5.0 (compatible; EloScope/1.0; +https://echecs.asso.fr/)",
-        },
-        signal: controller.signal,
-      });
+      const [content, participantsContent] = await Promise.all([
+        fetchFfePage(urls.grid, controller.signal),
+        fetchFfePage(urls.participants, controller.signal),
+      ]);
+      return {
+        kind: "html",
+        content,
+        participantsContent,
+        sourceUrl: urls.fiche.toString(),
+        fetchedAt: new Date().toISOString(),
+      };
     } finally {
       clearTimeout(timeout);
     }
-
-    validateFfeUrl(response.url);
-    if (!response.ok) throw new Error(`La source FFE ne répond pas actuellement (${response.status}).`);
-    const contentType = response.headers.get("content-type") ?? "";
-    if (!contentType.includes("text/html") && !contentType.includes("application/xhtml+xml")) {
-      throw new Error("La page reçue n’est pas une grille HTML.");
-    }
-    const declared = Number(response.headers.get("content-length") ?? 0);
-    if (declared > MAX_BYTES) throw new Error("La grille FFE dépasse la taille autorisée.");
-    const content = await response.text();
-    if (new TextEncoder().encode(content).byteLength > MAX_BYTES) throw new Error("La grille FFE dépasse la taille autorisée.");
-    return { kind: "html", content, fetchedAt: new Date().toISOString() };
   }
 
   async parseSource(source: RawTournamentSource) {
-    return parseFfeHtml(source.content);
+    const parsed = parseFfeHtml(source.content);
+    const participants = source.participantsContent ? parseFfeParticipants(source.participantsContent) : [];
+    if (!participants.length) parsed.warnings.push("La liste des participants et des clubs n’a pas pu être lue.");
+    return { ...parsed, participants, sourceUrl: source.sourceUrl };
   }
 
   normalize(parsed: ParsedTournament): NormalizedTournament {
@@ -222,17 +292,23 @@ export class FfeResultsAdapter implements TournamentSourceAdapter {
       .map((header, index) => (/^R\s*\d+$/i.test(header) ? index : -1))
       .filter((index) => index >= 0);
 
+    const participantsByName = new Map(
+      (parsed.participants ?? []).map((participant) => [normalizedPlayerName(participant.name), participant])
+    );
     const players: ImportedPlayer[] = parsed.rows.map((row, playerIndex) => {
       const rank = Number(row[rankIndex]) || playerIndex + 1;
       const rounds = roundIndexes.map((index, roundIndex) => parseRound(row[index] ?? "", roundIndex + 1));
+      const name = row[nameIndex] || `Joueur ${rank}`;
+      const participant = participantsByName.get(normalizedPlayerName(name));
       return {
         id: `ffe-${rank}`,
         rank,
-        name: row[nameIndex] || `Joueur ${rank}`,
-        rating: Number((row[ratingIndex] ?? "").match(/\d+/)?.[0]) || undefined,
-        category: row[categoryIndex] || undefined,
-        federation: row[federationIndex] || undefined,
-        league: row[leagueIndex] || undefined,
+        name,
+        rating: Number((row[ratingIndex] ?? "").match(/\d+/)?.[0]) || participant?.rating,
+        category: row[categoryIndex] || participant?.category,
+        federation: row[federationIndex] || participant?.federation,
+        league: row[leagueIndex] || participant?.league,
+        club: participant?.club,
         score: parseHalfNumber(row[scoreIndex] ?? "0"),
         performance: Number((row[performanceIndex] ?? "").match(/\d+/)?.[0]) || undefined,
         tieBreaks: Object.fromEntries(tieBreakIndexes.map((index) => [
@@ -258,6 +334,7 @@ export class FfeResultsAdapter implements TournamentSourceAdapter {
       report: {
         title: parsed.title || "Tournoi FFE importé",
         sourceType: "FFE",
+        sourceUrl: parsed.sourceUrl,
         currentRound: parsed.currentRound || roundIndexes.length,
         totalRounds: roundIndexes.length,
         status: "UNKNOWN",

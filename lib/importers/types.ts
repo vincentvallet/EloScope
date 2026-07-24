@@ -3,7 +3,18 @@ import type { TournamentReport } from "@/lib/domain";
 export type RawTournamentSource = {
   kind: "html";
   content: string;
+  participantsContent?: string;
+  sourceUrl?: string;
   fetchedAt: string;
+};
+
+export type ParsedParticipant = {
+  name: string;
+  rating?: number;
+  category?: string;
+  federation?: string;
+  league?: string;
+  club?: string;
 };
 
 export type ParsedTournament = {
@@ -11,6 +22,8 @@ export type ParsedTournament = {
   currentRound?: number;
   headers: string[];
   rows: string[][];
+  participants?: ParsedParticipant[];
+  sourceUrl?: string;
   warnings: string[];
 };
 
@@ -33,6 +46,7 @@ export type ImportedPlayer = {
   category?: string;
   federation?: string;
   league?: string;
+  club?: string;
   score: number;
   tieBreaks: Record<string, number | null>;
   performance?: number;
