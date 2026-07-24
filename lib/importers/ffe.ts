@@ -9,7 +9,6 @@ import type {
 
 const ALLOWED_HOSTS = new Set(["echecs.asso.fr", "www.echecs.asso.fr"]);
 const MAX_BYTES = 2_000_000;
-const MAX_REDIRECTS = 3;
 
 export function validateFfeUrl(input: string) {
   const url = new URL(input);
@@ -166,32 +165,22 @@ export class FfeResultsAdapter implements TournamentSourceAdapter {
   }
 
   async fetchSource(input: string): Promise<RawTournamentSource> {
-    let current = americanGridUrl(input);
-    let response: Response | undefined;
+    const current = americanGridUrl(input);
     const controller = new AbortController();
     const timeout = setTimeout(() => controller.abort(), 10_000);
+    let response: Response;
 
     try {
-      for (let redirectCount = 0; redirectCount <= MAX_REDIRECTS; redirectCount += 1) {
-        response = await fetch(current, {
-          redirect: "manual",
-          headers: { accept: "text/html,application/xhtml+xml" },
-          signal: controller.signal,
-        });
-
-        if (response.status >= 300 && response.status < 400) {
-          const location = response.headers.get("location");
-          if (!location) throw new Error("La FFE a renvoyé une redirection sans destination.");
-          current = validateFfeUrl(new URL(location, current).toString());
-          continue;
-        }
-        break;
-      }
+      response = await fetch(current, {
+        redirect: "follow",
+        headers: { accept: "text/html,application/xhtml+xml" },
+        signal: controller.signal,
+      });
     } finally {
       clearTimeout(timeout);
     }
 
-    if (!response || response.status >= 300) throw new Error("Trop de redirections depuis la source FFE.");
+    validateFfeUrl(response.url);
     if (!response.ok) throw new Error(`La source FFE ne répond pas actuellement (${response.status}).`);
     const contentType = response.headers.get("content-type") ?? "";
     if (!contentType.includes("text/html") && !contentType.includes("application/xhtml+xml")) {
