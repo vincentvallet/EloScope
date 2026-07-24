@@ -11,7 +11,7 @@ Le rapport clubs compare les associations à partir de leurs données réelles :
 - Zod pour la validation des imports
 - Prisma et SQLite pour le schéma de persistance locale
 - Vitest et Playwright
-- Vinext/Cloudflare pour le déploiement Sites, structure compatible avec un déploiement Netlify Next.js
+- Vinext/Vite avec sorties dédiées Cloudflare Sites et Netlify/Nitro
 
 ## Installation et lancement
 
@@ -59,13 +59,23 @@ La vue classement exporte les joueurs et leurs clubs en CSV. Le bouton PDF utili
 
 ## Déploiement Netlify
 
-Utiliser l’intégration Next.js officielle de Netlify :
+EloScope utilise vinext et Vite plutôt que `next build`. Pour Netlify, le
+plugin Vite officiel de Nitro génère les fichiers publics dans `dist` et la
+fonction serveur Netlify qui assure le rendu App Router, les routes dynamiques
+et `/api/import`.
 
 ```bash
-npm run build
+npm run build:netlify
 ```
 
-Définir `DATABASE_URL` dans l’environnement du site si la persistance Prisma est activée.
+La configuration de production est portée par `netlify.toml` : commande de
+build, dossier publié, preset Nitro et version de Node.js. Le runtime Next.js
+automatique de Netlify est volontairement désactivé, car il attendrait une
+sortie `.next` que vinext ne produit pas.
+
+Le build Cloudflare/Sites existant reste disponible avec `npm run build`.
+Aucune base de données ni variable secrète n’est nécessaire au fonctionnement
+actuel : les rapports restent stockés dans la session du navigateur.
 
 ## Limites connues
 
@@ -74,5 +84,6 @@ Définir `DATABASE_URL` dans l’environnement du site si la persistance Prisma 
 - L’export PDF repose sur l’impression navigateur, sans moteur PDF serveur.
 - L’historique de tournois et de joueurs est limité à la session de l’onglet et disparaît à sa fermeture.
 - Les variations Elo sont des estimations ; l’homologation et le coefficient K officiel restent à vérifier.
+- vinext et Nitro sont encore expérimentaux ; la sortie Netlify doit être revalidée lors d’une mise à niveau majeure de l’un de ces outils.
 
 EloScope n’embarque aucune donnée de tournoi ou de joueur fictive.
