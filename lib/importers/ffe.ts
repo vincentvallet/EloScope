@@ -173,7 +173,11 @@ export class FfeResultsAdapter implements TournamentSourceAdapter {
     try {
       response = await fetch(current, {
         redirect: "follow",
-        headers: { accept: "text/html,application/xhtml+xml" },
+        headers: {
+          accept: "text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8",
+          "accept-language": "fr-FR,fr;q=0.9",
+          "user-agent": "Mozilla/5.0 (compatible; EloScope/1.0; +https://echecs.asso.fr/)",
+        },
         signal: controller.signal,
       });
     } finally {
