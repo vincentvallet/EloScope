@@ -418,10 +418,13 @@ function ClubsPage({ report }: { report: NormalizedTournament }) {
       <Kpi label="Joueurs rattachés" value={withClub} detail={`${report.players.length - withClub} sans club indiqué`} icon={<Users/>}/>
       <Kpi label="Club le plus représenté" value={clubs[0]?.players.length ?? 0} detail={clubs[0]?.name ?? "Aucun club"} icon={<Trophy/>}/>
     </div>
-    {clubs.length ? <div className="club-grid">{clubs.map((club) => <article className="club-card" key={club.name}>
-      <span className="club-icon"><Building2/></span>
-      <div><h3>{club.name}</h3><p>{club.players.length} joueur{club.players.length > 1 ? "s" : ""}</p><small>{club.players.slice(0, 3).map((player) => player.name).join(" · ")}{club.players.length > 3 ? "…" : ""}</small></div>
-    </article>)}</div> : <EmptyState title="Aucun club trouvé">La liste des participants FFE ne contient aucun club exploitable pour ce tournoi.</EmptyState>}
+    {clubs.length ? <>
+      <div className="club-grid">{clubs.map((club) => <article className="club-card" key={club.name}>
+        <span className="club-icon"><Building2/></span>
+        <div><h3>{club.name}</h3><p>{club.players.length} joueur{club.players.length > 1 ? "s" : ""}</p><small>{club.players.slice(0, 3).map((player) => player.name).join(" · ")}{club.players.length > 3 ? "…" : ""}</small></div>
+      </article>)}</div>
+      <Card className="table-card"><SectionTitle>Liste complète des joueurs par club</SectionTitle><div className="table-scroll always"><table><thead><tr><th>Club</th><th>Joueur</th><th>Elo</th><th>Classement</th><th>Score</th></tr></thead><tbody>{clubs.flatMap((club) => club.players.map((player) => <tr key={`${club.name}-${player.id}`} onClick={() => { rememberPlayer(player, report.report.title); window.location.assign(playerHref(player)); }}><td><strong>{club.name}</strong></td><td>{player.name}</td><td>{player.rating ?? "NC"}</td><td>{player.rank}</td><td>{formatScore(player.score)} / {report.report.totalRounds}</td></tr>))}</tbody></table></div></Card>
+    </> : <EmptyState title="Aucun club trouvé">La liste des participants FFE ne contient aucun club exploitable pour ce tournoi.</EmptyState>}
   </div>;
 }
 
