@@ -13,12 +13,6 @@ Tous les adaptateurs suivent `TournamentSourceAdapter` :
 
 Le parseur détecte les en-têtes par leur texte, traite les espaces insécables, le symbole ½ et les accents, et remonte des avertissements si la grille ou la colonne joueur manque.
 
-## CSV
-
-`ManualCsvAdapter` reconnaît les séparateurs virgule et point-virgule, les cellules citées et plusieurs alias français/anglais. Le CSV complémentaire joueur–club utilise notamment `playerName,clubName`.
-
-## Démonstration et Chess-Results
-
-`DemoTournamentAdapter` expose la fixture structurée. `ChessResultsAdapterPlaceholder` réserve l’extension, mais reste désactivé pour éviter une récupération non fiable.
+Le MVP ne propose qu’un import FFE. Les imports CSV et les données de démonstration ont été retirés du produit.
 
 Pour ajouter une source, implémenter l’interface, écrire des fixtures nettoyées et ajouter des tests de colonnes absentes, ronde en cours et encodage.

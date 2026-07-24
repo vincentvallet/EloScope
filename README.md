@@ -1,6 +1,6 @@
 # EloScope
 
-EloScope transforme des résultats de tournois d’échecs en rapports visuels pour les joueurs, clubs, entraîneurs et organisateurs. Le MVP est en français et fournit un tournoi fictif complet, quatre vues d’analyse, un moteur Elo configurable, des imports FFE/CSV, des favoris locaux et des exports.
+EloScope transforme une grille américaine officielle de la Fédération Française des Échecs en rapports visuels pour les joueurs, clubs, entraîneurs et organisateurs. Le MVP est en français et fournit des vues tournoi, joueur, rondes et comparaison, ainsi qu’un moteur Elo configurable.
 
 ## Stack
 
@@ -43,13 +43,13 @@ La seule variable nécessaire est :
 DATABASE_URL="file:./dev.db"
 ```
 
-Le schéma Prisma stocke des rapports normalisés versionnés. Le MVP fourni fonctionne sans migration, car la démonstration et les préférences sont locales ; la base est prête pour la persistance des imports.
+Le schéma Prisma prépare le stockage de rapports normalisés versionnés. Dans le MVP, le dernier tournoi importé est conservé localement dans le navigateur.
 
 ## Tester les imports
 
-- Démonstration : Accueil → **Utiliser les données de démonstration**.
-- CSV : Importer → **Fichier CSV**. Les en-têtes reconnus incluent `Joueur`, `Elo`, `Club` et `Score`.
-- FFE : Importer → **URL FFE**, puis coller une URL HTTPS du domaine `echecs.asso.fr`. La récupération est exécutée côté serveur avec liste blanche, timeout, contrôle de contenu et limite de taille.
+- FFE : coller une URL HTTPS de résultats du domaine `echecs.asso.fr`.
+- Un lien de classement contenant `Action=Cl` est automatiquement converti vers la grille américaine `Action=Ga`.
+- La récupération est exécutée côté serveur avec liste blanche, suivi manuel des redirections, timeout, contrôle de contenu et limite de taille.
 
 ## Exports
 
@@ -63,7 +63,7 @@ Utiliser l’intégration Next.js officielle de Netlify :
 npm run build
 ```
 
-Définir `DATABASE_URL` dans l’environnement du site si la persistance Prisma est activée. Les rapports de démonstration n’en ont pas besoin.
+Définir `DATABASE_URL` dans l’environnement du site si la persistance Prisma est activée.
 
 ## Limites connues
 
@@ -73,4 +73,4 @@ Définir `DATABASE_URL` dans l’environnement du site si la persistance Prisma 
 - Les favoris et récents sont locaux tant qu’aucun compte n’existe.
 - Les variations Elo sont des estimations ; l’homologation et le coefficient K officiel restent à vérifier.
 
-Les données de `data/demo-tournament.ts` sont entièrement fictives et séparées du code de présentation.
+EloScope n’embarque aucune donnée de tournoi ou de joueur fictive.

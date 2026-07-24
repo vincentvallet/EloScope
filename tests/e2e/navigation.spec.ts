@@ -1,24 +1,22 @@
 import { expect, test } from "@playwright/test";
 
-test("parcours principal de la démonstration", async ({ page }) => {
-  await page.goto("/");
-  await page.getByRole("link", { name: /Utiliser la démonstration/i }).click();
-  await expect(page.getByRole("heading", { name: "Open de la Côte d’Opale 2026" })).toBeVisible();
-  await page.getByRole("link", { name: "Classement" }).click();
-  await page.getByRole("row").nth(1).click();
-  await expect(page.getByText("Estimation Elo")).toBeVisible();
-  await page.getByRole("button", { name: "40" }).click();
-  await page.getByRole("link", { name: /Suivant/i }).click();
-  await expect(page.getByText("Variation Elo estimée")).toBeVisible();
+const ffeUrl = "https://echecs.asso.fr/Resultats.aspx?URL=Tournois/Id/68186/68186&Action=Cl";
+
+test("importe un lien FFE de classement et ouvre le rapport réel", async ({ page }) => {
+  await page.goto("/importer");
+  await page.getByLabel("Lien FFE du tournoi").fill(ffeUrl);
+  await page.getByRole("button", { name: "Analyser le tournoi" }).click();
+  await expect(page.getByRole("heading", { name: "Grille FFE reconnue" })).toBeVisible();
+  await page.getByRole("button", { name: "Générer le rapport" }).click();
+  await expect(page.getByText("Source FFE")).toBeVisible();
+  await expect(page.getByText("Champ International de Lyon Henri Rinck 2026 blitz")).toBeVisible();
 });
 
-test("club, comparaison et export CSV", async ({ page }) => {
-  await page.goto("/tournoi/open-cote-opale-2026/clubs/club-1");
-  await expect(page.getByRole("heading", { name: "Échiquier du Touquet" })).toBeVisible();
-  await page.getByPlaceholder("Nom du joueur").fill("Ma");
-  await page.goto("/tournoi/open-cote-opale-2026/comparer");
-  await expect(page.getByRole("heading", { name: "Comparer les parcours" })).toBeVisible();
-  const download = page.waitForEvent("download");
-  await page.getByRole("button", { name: /CSV/i }).click();
-  await download;
+test("recalcule le rapport joueur et ouvre la comparaison", async ({ page }) => {
+  await page.goto("/tournoi/importe/classement");
+  await page.getByRole("row").nth(1).click();
+  await page.getByRole("button", { name: "40" }).click();
+  await expect(page.getByText("Variation Elo estimée")).toBeVisible();
+  await page.goto("/tournoi/importe/comparer");
+  await expect(page.getByRole("heading", { name: "Comparer les joueurs" })).toBeVisible();
 });

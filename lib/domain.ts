@@ -1,4 +1,4 @@
-export type SourceType = "FFE" | "CHESS_RESULTS" | "CSV" | "DEMO";
+export type SourceType = "FFE" | "CHESS_RESULTS";
 export type TournamentStatus = "UPCOMING" | "IN_PROGRESS" | "COMPLETED" | "UNKNOWN";
 export type RatingType = "STANDARD" | "RAPID" | "BLITZ" | "UNKNOWN";
 
@@ -69,8 +69,6 @@ export type TournamentEntry = {
   estimatedPerformance?: number;
   rounds: RoundResult[];
 };
-
-export type DemoEntry = TournamentEntry & { player: Player; club?: Club };
 
 export type RatingRoundCalculation = {
   round: number;
