@@ -8,7 +8,7 @@ import {
   ArrowLeft, ArrowRight, BarChart3, Building2, CalendarDays, Check, ChevronDown,
   CircleAlert, Clock3, Download, Gauge, HelpCircle, Home, Import,
   Info, Menu, Printer, RefreshCcw, Search, Settings, Star, Target, Trophy,
-  UserRound, Users,
+  Users,
 } from "lucide-react";
 import type { ImportedPlayer, NormalizedTournament } from "@/lib/importers/types";
 import type { RoundResult } from "@/lib/domain";
@@ -19,6 +19,7 @@ import { EChart } from "@/components/echart";
 
 const LEGACY_STORAGE_KEY = "eloscope:ffe-report";
 const SESSION_REPORT_KEY = "eloscope:session-report";
+const SESSION_REPORTS_KEY = "eloscope:session-reports";
 const SESSION_HISTORY_KEY = "eloscope:session-history";
 const BASE = "/tournoi/importe";
 const colors = ["#356B82", "#7158A5", "#2B8295", "#C47B2E", "#64748B"];
@@ -127,26 +128,62 @@ function enrichCalculatedMetrics(report: NormalizedTournament) {
   return { ...report, players };
 }
 
+function reportKey(report: NormalizedTournament) {
+  return report.report.sourceUrl || `${report.report.title}::${report.report.importedAt}`;
+}
+
+function readSessionReports() {
+  try {
+    const parsed = JSON.parse(sessionStorage.getItem(SESSION_REPORTS_KEY) ?? "[]") as NormalizedTournament[];
+    return Array.isArray(parsed) ? parsed.map(enrichCalculatedMetrics) : [];
+  } catch {
+    return [];
+  }
+}
+
+function storeSessionReports(reports: NormalizedTournament[]) {
+  sessionStorage.setItem(SESSION_REPORTS_KEY, JSON.stringify(reports));
+}
+
 function useImportedReport() {
   const [report, setReport] = useState<NormalizedTournament | null>(null);
+  const [reports, setReports] = useState<NormalizedTournament[]>([]);
   const [ready, setReady] = useState(false);
   useEffect(() => {
     try {
       localStorage.removeItem(LEGACY_STORAGE_KEY);
       const stored = sessionStorage.getItem(SESSION_REPORT_KEY);
+      const savedReports = readSessionReports();
       if (stored) {
         const enriched = enrichCalculatedMetrics(JSON.parse(stored) as NormalizedTournament);
+        const merged = [enriched, ...savedReports.filter((item) => reportKey(item) !== reportKey(enriched))];
         sessionStorage.setItem(SESSION_REPORT_KEY, JSON.stringify(enriched));
+        storeSessionReports(merged);
         setReport(enriched);
+        setReports(merged);
+      } else if (savedReports.length) {
+        sessionStorage.setItem(SESSION_REPORT_KEY, JSON.stringify(savedReports[0]));
+        setReport(savedReports[0]);
+        setReports(savedReports);
       } else {
         setReport(null);
+        setReports([]);
       }
     } catch {
       sessionStorage.removeItem(SESSION_REPORT_KEY);
     }
     setReady(true);
   }, []);
-  return { report, ready, setReport };
+  const selectReport = (nextReport: NormalizedTournament) => {
+    const enriched = enrichCalculatedMetrics(nextReport);
+    const current = readSessionReports();
+    const updated = [enriched, ...current.filter((item) => reportKey(item) !== reportKey(enriched))];
+    storeSessionReports(updated);
+    setReports(updated);
+    sessionStorage.setItem(SESSION_REPORT_KEY, JSON.stringify(enriched));
+    setReport(enriched);
+  };
+  return { report, reports, ready, setReport: selectReport };
 }
 
 type SessionHistory = {
@@ -179,7 +216,7 @@ function rememberTournament(report: NormalizedTournament) {
       searchedAt: new Date().toISOString(),
     },
     ...history.tournaments.filter((item) => item.sourceUrl !== report.report.sourceUrl),
-  ].slice(0, 6);
+  ];
   sessionStorage.setItem(SESSION_HISTORY_KEY, JSON.stringify(history));
 }
 
@@ -237,7 +274,7 @@ function tieBreakAbbreviation(label: string) {
 
 export function EloScopeApp() {
   const pathname = usePathname() || "/";
-  const { report, ready, setReport } = useImportedReport();
+  const { report, reports, ready, setReport } = useImportedReport();
   const [mobileOpen, setMobileOpen] = useState(false);
   const [search, setSearch] = useState("");
   const matches = useMemo(() => {
@@ -248,9 +285,19 @@ export function EloScopeApp() {
   const navigation = [
     { href: "/", label: "Accueil", icon: Home },
     { href: report ? `${BASE}/vue-ensemble` : "/importer", label: "Tournois", icon: Trophy },
-    { href: report ? `${BASE}/joueurs` : "/importer", label: "Joueurs", icon: UserRound },
+    { href: report ? `${BASE}/classement` : "/importer", label: "Classement", icon: BarChart3 },
     { href: report ? `${BASE}/clubs` : "/importer", label: "Clubs", icon: Building2 },
+    { href: report ? `${BASE}/rondes` : "/importer", label: "Rondes", icon: CalendarDays },
   ];
+  const changeTournament = (key: string) => {
+    const selected = reports.find((item) => reportKey(item) === key);
+    if (!selected) return;
+    setReport(selected);
+    const reportSection = pathname.startsWith(`${BASE}/`) && !pathname.includes("/joueurs/")
+      ? pathname
+      : `${BASE}/vue-ensemble`;
+    window.location.assign(reportSection);
+  };
 
   return (
     <div className="app-shell">
@@ -261,7 +308,13 @@ export function EloScopeApp() {
         <nav aria-label="Navigation principale">
           {navigation.map((item) => {
             const Icon = item.icon;
-            const active = item.href === "/" ? pathname === "/" : pathname.startsWith(item.href.replace(/\/(vue-ensemble|joueurs|clubs)$/, ""));
+            const active = item.href === "/"
+              ? pathname === "/"
+              : item.label === "Tournois"
+                ? pathname.endsWith("/vue-ensemble")
+                : item.label === "Classement"
+                  ? pathname.endsWith("/classement") || pathname.includes("/joueurs/")
+                  : pathname.startsWith(item.href);
             return <a href={item.href} className={active ? "active" : ""} key={item.label}><Icon size={18}/><span>{item.label}</span></a>;
           })}
         </nav>
@@ -281,11 +334,16 @@ export function EloScopeApp() {
             <input value={search} onChange={(event) => setSearch(event.target.value)} placeholder="Rechercher dans le tournoi importé…" aria-label="Recherche globale"/>
             {matches.length > 0 && <div className="search-results">{matches.map((player) => <a href={playerHref(player)} key={player.id} onClick={() => rememberPlayer(player, report!.report.title)}><Avatar name={player.name}/><span>{player.name}<small>{player.rating ? `${formatNumber(player.rating)} Elo` : "Non classé"}{player.club ? ` · ${player.club}` : ""}</small></span></a>)}</div>}
           </div>
-          <div className="top-context"><span>{report?.report.title ?? "Aucun tournoi importé"}</span><small>{report ? "Source FFE" : "Import requis"}</small></div>
+          {report && reports.length > 1 ? <label className="tournament-switcher">
+            <span>Tournoi</span>
+            <select value={reportKey(report)} onChange={(event) => changeTournament(event.target.value)} aria-label="Changer de tournoi">
+              {reports.map((item) => <option value={reportKey(item)} key={reportKey(item)}>{item.report.title}</option>)}
+            </select>
+          </label> : <div className="top-context"><span>{report?.report.title ?? "Aucun tournoi importé"}</span><small>{report ? "Source FFE" : "Import requis"}</small></div>}
           <a className="button primary" href="/importer"><Import size={17}/>{report ? "Changer de tournoi" : "Importer"}</a>
         </header>
         <main>
-          <PageRouter pathname={pathname} report={report} ready={ready} setReport={setReport}/>
+          <PageRouter pathname={pathname} report={report} reports={reports} ready={ready} setReport={setReport}/>
         </main>
       </div>
       <nav className="mobile-nav" aria-label="Navigation mobile">
@@ -297,17 +355,18 @@ export function EloScopeApp() {
 }
 
 function PageRouter({
-  pathname, report, ready, setReport,
+  pathname, report, reports, ready, setReport,
 }: {
   pathname: string;
   report: NormalizedTournament | null;
+  reports: NormalizedTournament[];
   ready: boolean;
-  setReport: (report: NormalizedTournament | null) => void;
+  setReport: (report: NormalizedTournament) => void;
 }) {
   if (!ready) return <div className="narrow-page"><Card className="empty-state"><strong>Chargement du rapport…</strong></Card></div>;
   if (pathname === "/") return <HomePage report={report} setReport={setReport}/>;
   if (pathname === "/importer") return <ImportPage setReport={setReport}/>;
-  if (pathname === "/rapports-recents") return <RecentPage report={report}/>;
+  if (pathname === "/rapports-recents") return <RecentPage reports={reports} setReport={setReport}/>;
   if (pathname === "/a-propos-elo") return <MethodPage/>;
   if (!report) return <NoReport/>;
   if (pathname.includes("/joueurs/")) return <PlayerReport report={report} id={pathname.split("/").at(-1)}/>;
@@ -403,7 +462,7 @@ function NoReport() {
 }
 
 function TournamentHeader({ report, active }: { report: NormalizedTournament; active: string }) {
-  const tabs = [["vue-ensemble", "Vue d’ensemble"], ["classement", "Classement"], ["joueurs", "Joueurs"], ["clubs", "Clubs"], ["rondes", "Rondes"]];
+  const tabs = [["vue-ensemble", "Vue d’ensemble"], ["classement", "Classement"], ["clubs", "Clubs"], ["rondes", "Rondes"]];
   return <>
     <div className="breadcrumbs"><a href="/">Accueil</a><span>/</span><strong>{report.report.title}</strong></div>
     <div className="tournament-head">
@@ -596,18 +655,29 @@ function ClubsPage({ report }: { report: NormalizedTournament }) {
   </div>;
 }
 
-function RecentPage({ report }: { report: NormalizedTournament | null }) {
+function RecentPage({
+  reports, setReport,
+}: {
+  reports: NormalizedTournament[];
+  setReport: (report: NormalizedTournament) => void;
+}) {
   const [history, setHistory] = useState<SessionHistory>(emptyHistory);
   useEffect(() => setHistory(readSessionHistory()), []);
   return <div className="plain-page"><div className="page-heading"><span className="eyebrow">Mémoire de la session</span><h1>Historique récent</h1><p>Ces recherches restent uniquement dans l’onglet courant et disparaissent à la fermeture de la session du navigateur.</p></div>
     <SectionTitle>Tournois recherchés</SectionTitle>
-    {history.tournaments.length ? <div className="report-grid">{history.tournaments.map((item) => <a className="report-card" href={report?.report.sourceUrl === item.sourceUrl ? `${BASE}/vue-ensemble` : "/importer"} key={`${item.sourceUrl}-${item.searchedAt}`}>
+    {history.tournaments.length ? <div className="report-grid">{history.tournaments.map((item) => {
+      const storedReport = reports.find((candidate) => candidate.report.sourceUrl === item.sourceUrl);
+      return <a className="report-card" href={storedReport ? `${BASE}/vue-ensemble` : "/importer"} onClick={() => { if (storedReport) setReport(storedReport); }} key={`${item.sourceUrl}-${item.searchedAt}`}>
       <div className="report-badge"><Trophy/></div><span className="status-pill success"><Check/>FFE</span><h3>{item.title}</h3><p>{item.players} joueurs · {item.rounds} rondes</p><small>Recherché le {new Date(item.searchedAt).toLocaleString("fr-FR")}</small>
-    </a>)}</div> : <EmptyState title="Aucun tournoi recherché">Importez une fiche tournoi FFE pour commencer.</EmptyState>}
+      </a>;
+    })}</div> : <EmptyState title="Aucun tournoi recherché">Importez une fiche tournoi FFE pour commencer.</EmptyState>}
     <SectionTitle>Joueurs consultés</SectionTitle>
-    {history.players.length ? <div className="directory-grid">{history.players.map((item) => <a href={report?.report.title === item.tournament ? `${BASE}/joueurs/${item.id}` : "/importer"} key={`${item.tournament}-${item.id}`}>
+    {history.players.length ? <div className="directory-grid">{history.players.map((item) => {
+      const storedReport = reports.find((candidate) => candidate.report.title === item.tournament && candidate.players.some((player) => player.id === item.id));
+      return <a href={storedReport ? `${BASE}/joueurs/${item.id}` : "/importer"} onClick={() => { if (storedReport) setReport(storedReport); }} key={`${item.tournament}-${item.id}`}>
       <Avatar name={item.name}/><span><strong>{item.name}</strong><small>{item.club ?? item.tournament}</small></span><ArrowRight/>
-    </a>)}</div> : <EmptyState title="Aucun joueur consulté">Les joueurs ouverts depuis la recherche ou le classement apparaîtront ici.</EmptyState>}
+      </a>;
+    })}</div> : <EmptyState title="Aucun joueur consulté">Les joueurs ouverts depuis la recherche ou le classement apparaîtront ici.</EmptyState>}
   </div>;
 }
 
