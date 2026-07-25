@@ -17,7 +17,7 @@ export async function runCatalogSync(storage: CatalogStorage, mode: SyncMode = "
     : existingLock
       ? new Date(existingLock.expiresAt).getTime() - 14 * 60_000
       : 0;
-  if (existingLock && existingLock.expiresAt > now.toISOString() && now.getTime() - inferredCreatedAt < 8 * 60_000) {
+  if (existingLock && existingLock.expiresAt > now.toISOString() && now.getTime() - inferredCreatedAt < 10 * 60_000) {
     return { skipped: "locked" as const };
   }
   await storage.setJSON(LOCK_KEY, {
@@ -35,12 +35,12 @@ export async function runCatalogSync(storage: CatalogStorage, mode: SyncMode = "
   }
   await storage.setJSON(STATUS_KEY, { ...(previousStatus ?? { itemCount: 0, updatedMonths: [] }), isRefreshing: true, lastAttemptAt });
   const controller = new AbortController();
-  const timeout = setTimeout(() => controller.abort(), 13 * 60_000);
+  const timeout = setTimeout(() => controller.abort(), 8 * 60_000);
   const client = new FfeCatalogClient();
   const updatedMonths: string[] = [];
   try {
     const targetMonths = mode === "initial"
-      ? Array.from({ length: now.getUTCMonth() + 1 }, (_, index) => addUtcMonths(now, -index))
+      ? Array.from({ length: Math.min(3, now.getUTCMonth() + 1) }, (_, index) => addUtcMonths(now, -index))
       : [addUtcMonths(now, 0), addUtcMonths(now, -1), addUtcMonths(now, -2)];
     const cursor = await storage.getJSON<{ year: number; month: number }>("metadata/backfill-cursor.json");
     const historical = cursor
@@ -61,16 +61,29 @@ export async function runCatalogSync(storage: CatalogStorage, mode: SyncMode = "
       const next = addUtcMonths(historical, -1);
       await storage.setJSON("metadata/backfill-cursor.json", { year: next.getUTCFullYear(), month: next.getUTCMonth() + 1 });
     }
-    const announcementItems = [];
-    for (const cadence of ["Lent", "UneHeure", "Rapide", "Blitz"] as const) {
-      announcementItems.push(...await client.announcements(cadence, controller.signal));
-    }
+    const partialCatalog = await readCatalog(storage);
+    await storage.setJSON(STATUS_KEY, {
+      ...(previousStatus ?? { itemCount: 0, updatedMonths: [] }),
+      itemCount: partialCatalog.length,
+      updatedMonths,
+      isRefreshing: true,
+      lastAttemptAt,
+    } satisfies CatalogSyncStatus);
+
+    // Refresh one announcement cadence per run. This keeps every background
+    // invocation bounded while the daily schedule rotates through all four.
+    const cadences = ["Lent", "UneHeure", "Rapide", "Blitz"] as const;
+    const cadenceCursor = await storage.getJSON<{ index: number }>("metadata/announcement-cursor.json");
+    const cadenceIndex = mode === "initial" ? 0 : (cadenceCursor?.index ?? 0) % cadences.length;
+    const cadence = cadences[cadenceIndex];
+    const announcementItems = await client.announcements(cadence, controller.signal);
     const upcoming = dedupeTournaments(announcementItems)
       .filter((item) => !item.startDate || item.startDate <= addUtcMonths(now, 7).toISOString().slice(0, 10));
-    await storage.setJSON("upcoming/all.json", {
-      key: "upcoming", items: upcoming, fetchedAt: new Date().toISOString(),
+    await storage.setJSON(`upcoming/${cadence.toLowerCase()}.json`, {
+      key: `upcoming-${cadence}`, items: upcoming, fetchedAt: new Date().toISOString(),
       sourceUrl: "https://www.echecs.asso.fr/Tournois.aspx",
     } satisfies CatalogBatch);
+    await storage.setJSON("metadata/announcement-cursor.json", { index: (cadenceIndex + 1) % cadences.length });
     const all = await readCatalog(storage);
     const success: CatalogSyncStatus = {
       lastAttemptAt,

@@ -62,10 +62,11 @@ npm run ffe:update-geography
 Les clés principales sont :
 
 - `months/YYYY-MM.json`
-- `upcoming/all.json`
+- `upcoming/<cadence>.json`
 - `details/<ffeRef>.json`
 - `metadata/sync-status.json`
 - `metadata/backfill-cursor.json`
+- `metadata/announcement-cursor.json`
 - `metadata/internal-secret.json`
 - `locks/catalog-sync.json`
 
@@ -80,15 +81,17 @@ secret aléatoire privé créé au premier lancement et déclenche rapidement la
 Background Function. Celle-ci :
 
 - met à jour le mois courant et les deux mois précédents ;
-- met à jour les annonces jusqu’à six mois ;
+- met à jour une cadence d’annonces jusqu’à six mois et fait tourner les quatre
+  cadences sur quatre exécutions ;
 - traite un mois historique supplémentaire ;
 - avance le curseur de backfill ;
 - ne remplace les métadonnées de succès qu’après validation des lots.
 
 Un verrou avec expiration empêche les synchronisations simultanées et une
 limite de fréquence évite les répétitions. Le handler `deploySucceeded` vérifie
-le catalogue après un déploiement de production et lance automatiquement
-l’année courante plus les annonces si le store est vide.
+le catalogue après un déploiement de production et lance automatiquement les
+trois mois récents plus une cadence d’annonces si le store est vide. Les mois
+plus anciens sont ensuite ajoutés progressivement par la tâche quotidienne.
 
 ## API
 
