@@ -66,8 +66,9 @@ Le schéma Prisma prépare le stockage de rapports normalisés versionnés. Dans
 - `GET /api/tournaments/:ffeRef` complète et met en cache une fiche à la demande.
 - `POST /api/tournaments/:ffeRef/analyze` réutilise l’adaptateur d’import FFE.
   - La tâche planifiée quotidienne met à jour le mois courant, les deux mois
-    précédents, une cadence d’annonces des six prochains mois et un mois
-    historique. Les quatre cadences tournent sur quatre exécutions.
+    précédents et un mois historique. Une tâche de fond indépendante met à jour
+    une cadence d’annonces des six prochains mois ; les quatre cadences tournent
+    sur quatre exécutions.
 - Après le premier déploiement, un événement `deploySucceeded` lance
   automatiquement une initialisation limitée si le catalogue est vide.
 

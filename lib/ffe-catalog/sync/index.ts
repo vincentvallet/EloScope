@@ -61,29 +61,6 @@ export async function runCatalogSync(storage: CatalogStorage, mode: SyncMode = "
       const next = addUtcMonths(historical, -1);
       await storage.setJSON("metadata/backfill-cursor.json", { year: next.getUTCFullYear(), month: next.getUTCMonth() + 1 });
     }
-    const partialCatalog = await readCatalog(storage);
-    await storage.setJSON(STATUS_KEY, {
-      ...(previousStatus ?? { itemCount: 0, updatedMonths: [] }),
-      itemCount: partialCatalog.length,
-      updatedMonths,
-      isRefreshing: true,
-      lastAttemptAt,
-    } satisfies CatalogSyncStatus);
-
-    // Refresh one announcement cadence per run. This keeps every background
-    // invocation bounded while the daily schedule rotates through all four.
-    const cadences = ["Lent", "UneHeure", "Rapide", "Blitz"] as const;
-    const cadenceCursor = await storage.getJSON<{ index: number }>("metadata/announcement-cursor.json");
-    const cadenceIndex = mode === "initial" ? 0 : (cadenceCursor?.index ?? 0) % cadences.length;
-    const cadence = cadences[cadenceIndex];
-    const announcementItems = await client.announcements(cadence, controller.signal);
-    const upcoming = dedupeTournaments(announcementItems)
-      .filter((item) => !item.startDate || item.startDate <= addUtcMonths(now, 7).toISOString().slice(0, 10));
-    await storage.setJSON(`upcoming/${cadence.toLowerCase()}.json`, {
-      key: `upcoming-${cadence}`, items: upcoming, fetchedAt: new Date().toISOString(),
-      sourceUrl: "https://www.echecs.asso.fr/Tournois.aspx",
-    } satisfies CatalogBatch);
-    await storage.setJSON("metadata/announcement-cursor.json", { index: (cadenceIndex + 1) % cadences.length });
     const all = await readCatalog(storage);
     const success: CatalogSyncStatus = {
       lastAttemptAt,
@@ -104,6 +81,48 @@ export async function runCatalogSync(storage: CatalogStorage, mode: SyncMode = "
     };
     await storage.setJSON(STATUS_KEY, failed);
     await storage.setJSON(LOCK_KEY, { owner, expiresAt: new Date(0).toISOString() });
+    throw error;
+  } finally {
+    clearTimeout(timeout);
+  }
+}
+
+export async function runAnnouncementSync(storage: CatalogStorage, now = new Date()) {
+  const lockKey = "locks/announcement-sync.json";
+  const owner = randomUUID();
+  const lock = await storage.getJSON<{ owner: string; createdAt: string }>(lockKey);
+  if (lock && now.getTime() - new Date(lock.createdAt).getTime() < 10 * 60_000) return { skipped: "locked" as const };
+  await storage.setJSON(lockKey, { owner, createdAt: now.toISOString() });
+  const verified = await storage.getJSON<{ owner: string }>(lockKey);
+  if (verified?.owner !== owner) return { skipped: "locked" as const };
+  const statusKey = "metadata/announcement-status.json";
+  const controller = new AbortController();
+  const timeout = setTimeout(() => controller.abort(), 8 * 60_000);
+  const cadences = ["Lent", "UneHeure", "Rapide", "Blitz"] as const;
+  const cursor = await storage.getJSON<{ index: number }>("metadata/announcement-cursor.json");
+  const cadenceIndex = (cursor?.index ?? 0) % cadences.length;
+  const cadence = cadences[cadenceIndex];
+  await storage.setJSON(statusKey, { isRefreshing: true, lastAttemptAt: now.toISOString(), cadence });
+  try {
+    const items = dedupeTournaments(await new FfeCatalogClient().announcements(cadence, controller.signal))
+      .filter((item) => !item.startDate || item.startDate <= addUtcMonths(now, 7).toISOString().slice(0, 10));
+    await storage.setJSON(`upcoming/${cadence.toLowerCase()}.json`, {
+      key: `upcoming-${cadence}`, items, fetchedAt: new Date().toISOString(),
+      sourceUrl: "https://www.echecs.asso.fr/Tournois.aspx",
+    } satisfies CatalogBatch);
+    await storage.setJSON("metadata/announcement-cursor.json", { index: (cadenceIndex + 1) % cadences.length });
+    await storage.setJSON(statusKey, {
+      isRefreshing: false, lastAttemptAt: now.toISOString(),
+      lastSuccessfulSyncAt: new Date().toISOString(), cadence, itemCount: items.length,
+    });
+    await storage.setJSON(lockKey, { owner: "", createdAt: new Date(0).toISOString() });
+    return { ok: true as const, cadence, itemCount: items.length };
+  } catch (error) {
+    await storage.setJSON(statusKey, {
+      isRefreshing: false, lastAttemptAt: now.toISOString(), cadence,
+      lastError: error instanceof Error ? error.message : "Erreur de synchronisation",
+    });
+    await storage.setJSON(lockKey, { owner: "", createdAt: new Date(0).toISOString() });
     throw error;
   } finally {
     clearTimeout(timeout);

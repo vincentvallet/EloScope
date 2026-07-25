@@ -13,3 +13,9 @@
 
 [functions."ffe-catalog-sync-worker"]
   background = true
+
+[functions."ffe-catalog-announcements"]
+  schedule = "47 3 * * *"
+
+[functions."ffe-catalog-announcements-worker"]
+  background = true

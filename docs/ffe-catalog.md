@@ -4,7 +4,7 @@
 
 Le moteur suit un flux volontairement découplé :
 
-`FFE → Netlify Scheduled Function → Background Function → Netlify Blobs → API EloScope → interface`
+`FFE → Netlify Scheduled Functions → Background Functions → Netlify Blobs → API EloScope → interface`
 
 La saisie d’un utilisateur n’interroge jamais le site de la FFE. La recherche
 lit uniquement des lots persistants du store `eloscope-ffe-catalog`.
@@ -67,6 +67,7 @@ Les clés principales sont :
 - `metadata/sync-status.json`
 - `metadata/backfill-cursor.json`
 - `metadata/announcement-cursor.json`
+- `metadata/announcement-status.json`
 - `metadata/internal-secret.json`
 - `locks/catalog-sync.json`
 
@@ -81,8 +82,6 @@ secret aléatoire privé créé au premier lancement et déclenche rapidement la
 Background Function. Celle-ci :
 
 - met à jour le mois courant et les deux mois précédents ;
-- met à jour une cadence d’annonces jusqu’à six mois et fait tourner les quatre
-  cadences sur quatre exécutions ;
 - traite un mois historique supplémentaire ;
 - avance le curseur de backfill ;
 - ne remplace les métadonnées de succès qu’après validation des lots.
@@ -92,6 +91,12 @@ limite de fréquence évite les répétitions. Le handler `deploySucceeded` vér
 le catalogue après un déploiement de production et lance automatiquement les
 trois mois récents plus une cadence d’annonces si le store est vide. Les mois
 plus anciens sont ensuite ajoutés progressivement par la tâche quotidienne.
+
+Une seconde tâche, `ffe-catalog-announcements`, s’exécute à `03:47 UTC`. Elle
+met à jour une cadence d’annonces jusqu’à six mois et fait tourner les quatre
+cadences sur quatre exécutions. Son verrou et son statut sont indépendants :
+une réponse lente du formulaire d’annonces FFE ne peut pas bloquer le catalogue
+mensuel.
 
 ## API
 
