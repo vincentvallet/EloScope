@@ -31,7 +31,8 @@ function relevance(item: FfeTournamentCatalogItem, query: string) {
 
 export async function searchCatalog(storage: CatalogStorage, params: TournamentSearchParams) {
   const query = normalizeSearchText(params.q ?? "");
-  let items = (await readCatalog(storage)).map((item) => ({ item, score: relevance(item, query) }));
+  const catalogItems = await readCatalog(storage);
+  let items = catalogItems.map((item) => ({ item, score: relevance(item, query) }));
   if (query) items = items.filter(({ score }) => score > 0);
   if (params.from) items = items.filter(({ item }) => (item.endDate ?? item.startDate ?? "") >= params.from!);
   if (params.to) items = items.filter(({ item }) => (item.startDate ?? "9999-12-31") <= params.to!);
@@ -53,7 +54,7 @@ export async function searchCatalog(storage: CatalogStorage, params: TournamentS
   const page = Math.max(1, params.page ?? 1);
   const pageSize = Math.min(50, Math.max(1, params.pageSize ?? 20));
   const total = items.length;
-  const status = await getCatalogStatus(storage);
+  const status = await getCatalogStatus(storage, catalogItems);
   const facet = (values: Array<string | number | undefined>) =>
     Object.entries(values.filter((value) => value !== undefined).reduce<Record<string, number>>((acc, value) => {
       acc[String(value)] = (acc[String(value)] ?? 0) + 1;
