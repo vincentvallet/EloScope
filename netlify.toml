@@ -1,8 +1,15 @@
 [build]
   command = "npm run build:netlify"
   publish = "dist"
+  functions = "netlify/functions"
 
 [build.environment]
   NODE_VERSION = "22.13.0"
   NITRO_PRESET = "netlify"
   NETLIFY_NEXT_PLUGIN_SKIP = "true"
+
+[functions."ffe-catalog-sync"]
+  schedule = "17 2 * * *"
+
+[functions."ffe-catalog-sync-worker"]
+  background = true

@@ -4,6 +4,11 @@ EloScope transforme la fiche officielle d’un tournoi de la Fédération Franç
 
 Le rapport clubs compare les associations à partir de leurs données réelles : score moyen, bilan victoires-nulles-défaites, Elo et performance moyens, écart performance/Elo et variation Elo estimée. Le classement principal est ordonné par score moyen, puis par performance relative.
 
+La page `/tournois` recherche également le catalogue public FFE par nom, ville,
+département, région, dates, année, cadence et disponibilité des résultats.
+Le catalogue est synchronisé automatiquement côté Netlify : aucune requête FFE
+n’est envoyée pendant la saisie d’un utilisateur.
+
 ## Stack
 
 - Next.js App Router, React, TypeScript strict et Tailwind CSS
@@ -12,6 +17,7 @@ Le rapport clubs compare les associations à partir de leurs données réelles :
 - Prisma et SQLite pour le schéma de persistance locale
 - Vitest et Playwright
 - Vinext/Vite avec sorties dédiées Cloudflare Sites et Netlify/Nitro
+- Netlify Functions, Scheduled Functions et Blobs pour le catalogue FFE
 
 ## Installation et lancement
 
@@ -53,6 +59,25 @@ Le schéma Prisma prépare le stockage de rapports normalisés versionnés. Dans
 - EloScope déduit la liste officielle des participants (`Action=Ls`) et la grille américaine (`Action=Ga`), puis rattache les clubs aux joueurs par leur nom normalisé.
 - La récupération est exécutée côté serveur avec liste blanche, timeout, contrôle de contenu et limite de taille.
 
+## Catalogue automatisé FFE
+
+- `GET /api/tournaments/search` recherche le catalogue local.
+- `GET /api/tournaments/catalog-status` expose uniquement l’état et la fraîcheur.
+- `GET /api/tournaments/:ffeRef` complète et met en cache une fiche à la demande.
+- `POST /api/tournaments/:ffeRef/analyze` réutilise l’adaptateur d’import FFE.
+- La tâche planifiée quotidienne met à jour le mois courant, les deux mois
+  précédents, les annonces des six prochains mois et un mois historique.
+- Après le premier déploiement, un événement `deploySucceeded` lance
+  automatiquement une initialisation limitée si le catalogue est vide.
+
+Les lots et la progression sont conservés dans le store Netlify Blobs
+`eloscope-ffe-catalog`. Le site, le token et l’accès au store sont fournis
+automatiquement par le runtime Netlify. Aucune variable d’environnement,
+création de table ou intervention dans l’interface Netlify n’est nécessaire.
+
+La documentation technique complète est dans
+[`docs/ffe-catalog.md`](docs/ffe-catalog.md).
+
 ## Exports
 
 La vue classement exporte les joueurs et leurs clubs en CSV. Le bouton PDF utilise une vue d’impression dédiée : choisir ensuite « Enregistrer au format PDF » dans la boîte de dialogue du navigateur.
@@ -69,17 +94,20 @@ npm run build:netlify
 ```
 
 La configuration de production est portée par `netlify.toml` : commande de
-build, dossier publié, preset Nitro et version de Node.js. Le runtime Next.js
+build, dossier publié, dossier de fonctions, tâche quotidienne, Background
+Function, preset Nitro et version de Node.js. Le runtime Next.js
 automatique de Netlify est volontairement désactivé, car il attendrait une
 sortie `.next` que vinext ne produit pas.
 
 Le build Cloudflare/Sites existant reste disponible avec `npm run build`.
-Aucune base de données ni variable secrète n’est nécessaire au fonctionnement
-actuel : les rapports restent stockés dans la session du navigateur.
+Aucune base de données externe ni variable secrète n’est nécessaire. Le secret
+interne de déclenchement est généré automatiquement et reste dans Netlify Blobs.
 
 ## Limites connues
 
 - Le parseur FFE est volontairement prudent et peut signaler les grilles dont le balisage sort des variantes testées.
+- La collecte dépend du HTML public de la FFE ; les anciennes données restent servies si la source est lente, indisponible ou change.
+- Le backfill historique avance d’un mois par jour afin de limiter la charge sur la FFE.
 - Chess-Results est préparé comme adaptateur désactivé, sans récupération agressive.
 - L’export PDF repose sur l’impression navigateur, sans moteur PDF serveur.
 - L’historique de tournois et de joueurs est limité à la session de l’onglet et disparaît à sa fermeture.

@@ -16,6 +16,7 @@ import { calculateTournamentDelta, estimatePerformance, RULESETS } from "@/lib/r
 import { formatNumber, formatScore, signed } from "@/lib/format";
 import { Avatar, Card, EmptyState, Kpi, SectionTitle } from "@/components/ui";
 import { EChart } from "@/components/echart";
+import { TournamentDetailPage, TournamentSearchPage } from "@/components/tournament-catalog";
 
 const LEGACY_STORAGE_KEY = "eloscope:ffe-report";
 const SESSION_REPORT_KEY = "eloscope:session-report";
@@ -283,6 +284,7 @@ export function EloScopeApp() {
   }, [report, search]);
   const navigation = [
     { href: "/", label: "Accueil", icon: Home },
+    { href: "/tournois", label: "Recherche", icon: Search },
     { href: report ? `${BASE}/vue-ensemble` : "/importer", label: "Tournois", icon: Trophy },
     { href: report ? `${BASE}/classement` : "/importer", label: "Classement", icon: BarChart3 },
     { href: report ? `${BASE}/clubs` : "/importer", label: "Clubs", icon: Building2 },
@@ -302,7 +304,7 @@ export function EloScopeApp() {
     <div className="app-shell">
       <aside className={`sidebar ${mobileOpen ? "open" : ""}`}>
         <a className="brand" href="/" aria-label="EloScope, accueil">
-          <Image className="brand-logo" src="/eloscope-logo.png" alt="" width={585} height={217} priority />
+          <Image className="brand-logo" src="/eloscope-logo.png" alt="" width={585} height={217} priority unoptimized />
         </a>
         <nav aria-label="Navigation principale">
           {navigation.map((item) => {
@@ -368,6 +370,8 @@ function PageRouter({
 }) {
   if (!ready) return <div className="narrow-page"><Card className="empty-state"><strong>Chargement du rapport…</strong></Card></div>;
   if (pathname === "/") return <HomePage reports={reports} setReport={setReport}/>;
+  if (pathname === "/tournois") return <TournamentSearchPage/>;
+  if (/^\/tournois\/\d+$/.test(pathname)) return <TournamentDetailPage ffeRef={pathname.split("/").at(-1)!} setReport={setReport}/>;
   if (pathname === "/importer") return <ImportPage setReport={setReport}/>;
   if (pathname === "/rapports-recents") return <RecentPage reports={reports} setReport={setReport}/>;
   if (pathname === "/a-propos-elo") return <MethodPage/>;
