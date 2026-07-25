@@ -40,6 +40,31 @@ test.beforeEach(async ({ page }) => {
   }));
 });
 
+test("ouvre la recherche par défaut et adapte le menu au rapport actif", async ({ page }) => {
+  await page.goto("/");
+  await expect(page.getByRole("heading", { name: "Trouver un tournoi" })).toBeVisible();
+  const navigation = page.getByRole("navigation", { name: "Navigation principale" });
+  await expect(navigation.getByRole("link", { name: "Accueil" })).toHaveCount(0);
+  await expect(navigation.getByRole("link", { name: "Recherche" })).toHaveClass(/active/);
+  await expect(navigation.getByRole("link", { name: "Lien FFE" })).toBeVisible();
+  await expect(navigation.getByRole("link", { name: "Classement" })).toHaveCount(0);
+
+  await page.goto("/importer");
+  await page.getByLabel("Lien de la fiche tournoi FFE").fill(ffeUrl);
+  await page.getByRole("button", { name: "Analyser le tournoi" }).click();
+  await page.getByRole("button", { name: "Générer le rapport" }).click();
+  await expect(navigation.getByRole("link", { name: "Classement" })).toBeVisible();
+  await expect(navigation.getByRole("link", { name: "Clubs" })).toBeVisible();
+  await expect(navigation.getByRole("link", { name: "Rondes" })).toBeVisible();
+
+  await page.goto("/tournoi/importe/clubs");
+  await expect(navigation.getByRole("link", { name: "Clubs" })).toHaveClass(/active/);
+  await expect(navigation.getByRole("link", { name: "Rondes" })).not.toHaveClass(/active/);
+  await page.goto("/tournoi/importe/rondes");
+  await expect(navigation.getByRole("link", { name: "Rondes" })).toHaveClass(/active/);
+  await expect(navigation.getByRole("link", { name: "Clubs" })).not.toHaveClass(/active/);
+});
+
 test("importe une fiche tournoi FFE et ouvre le rapport réel", async ({ page }) => {
   await page.goto("/importer");
   await page.getByLabel("Lien de la fiche tournoi FFE").fill(ffeUrl);

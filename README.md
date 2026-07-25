@@ -62,15 +62,21 @@ Le schéma Prisma prépare le stockage de rapports normalisés versionnés. Dans
 ## Catalogue automatisé FFE
 
 - `GET /api/tournaments/search` recherche le catalogue local.
-- `GET /api/tournaments/catalog-status` expose uniquement l’état et la fraîcheur.
+- `GET /api/tournaments/catalog-status` expose la fraîcheur, les dates extrêmes
+  et la progression réelle des archives depuis 2000.
 - `GET /api/tournaments/:ffeRef` complète et met en cache une fiche à la demande.
 - `POST /api/tournaments/:ffeRef/analyze` réutilise l’adaptateur d’import FFE.
-  - La tâche planifiée quotidienne met à jour le mois courant, les deux mois
-    précédents et un mois historique. Une tâche de fond indépendante met à jour
-    une cadence d’annonces des six prochains mois ; les quatre cadences tournent
-    sur quatre exécutions.
-- Après le premier déploiement, un événement `deploySucceeded` lance
-  automatiquement une initialisation limitée si le catalogue est vide.
+- La tâche planifiée quotidienne met à jour le mois courant et les deux mois
+  précédents. Une tâche indépendante met à jour les annonces futures.
+- Le rattrapage accéléré vérifie automatiquement chaque mois depuis janvier
+  2000 par lots limités à 12 mois, 100 requêtes ou 10 minutes. Les lots
+  s’enchaînent automatiquement et un watchdog reprend toute interruption.
+- Les mois vides sont conservés comme vérifiés. Après trois échecs, un mois est
+  mis en quarantaine puis retenté de manière limitée.
+- Les index annuels gardent la recherche rapide sans envoyer le catalogue
+  complet au navigateur.
+- Après le déploiement, `deploySucceeded` initialise la file et lance le premier
+  lot sans configuration manuelle.
 
 Les lots et la progression sont conservés dans le store Netlify Blobs
 `eloscope-ffe-catalog`. Le site, le token et l’accès au store sont fournis
@@ -109,7 +115,8 @@ interne de déclenchement est généré automatiquement et reste dans Netlify Bl
 
 - Le parseur FFE est volontairement prudent et peut signaler les grilles dont le balisage sort des variantes testées.
 - La collecte dépend du HTML public de la FFE ; les anciennes données restent servies si la source est lente, indisponible ou change.
-- Le backfill historique avance d’un mois par jour afin de limiter la charge sur la FFE.
+- Le backfill historique reste volontairement séquentiel et espacé ; sa durée
+  dépend du nombre réel de pages mensuelles et des éventuels ralentissements FFE.
 - Chess-Results est préparé comme adaptateur désactivé, sans récupération agressive.
 - L’export PDF repose sur l’impression navigateur, sans moteur PDF serveur.
 - L’historique de tournois et de joueurs est limité à la session de l’onglet et disparaît à sa fermeture.

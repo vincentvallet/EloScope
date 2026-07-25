@@ -35,13 +35,28 @@ test("recherche Cappelle, combine les filtres et les conserve au retour", async 
         departments: [{ value: "59", count: 1 }],
         years: [{ value: "2026", count: 1 }],
       },
-      catalog: { lastSuccessfulSyncAt: "2026-07-25T00:00:00.000Z", isRefreshing: false },
+      catalog: {
+        catalogCount: 31900,
+        earliestIndexedDate: "2000-01-15",
+        latestIndexedDate: "2026-07-25",
+        lastSuccessfulSyncAt: "2026-07-25T00:00:00.000Z",
+        isRefreshing: false,
+        historicalBackfill: {
+          targetStart: "2000-01", targetEnd: "2026-07", totalMonths: 319,
+          completedMonths: 120, emptyMonths: 3, failedMonths: 0, pendingMonths: 199,
+          running: true, completed: false, updatedAt: "2026-07-25T00:00:00.000Z",
+        },
+      },
     }),
   }));
   await page.route("**/api/tournaments/67414", async (route) => route.fulfill({
     contentType: "application/json", body: JSON.stringify(item),
   }));
   await page.goto("/tournois");
+  await expect(page.getByText("Archives historiques en cours d’indexation")).toBeVisible();
+  await page.getByRole("button", { name: "Années 2000" }).click();
+  await expect(page).toHaveURL(/from=2000-01-01/);
+  await expect(page).toHaveURL(/to=2009-12-31/);
   await page.getByLabel("Nom du tournoi, ville ou département").fill("Cappelle");
   await page.getByRole("button", { name: "Filtres avancés" }).click();
   await page.getByLabel("Région").selectOption("Hauts-de-France");

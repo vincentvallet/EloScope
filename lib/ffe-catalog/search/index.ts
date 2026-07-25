@@ -1,9 +1,15 @@
 import { normalizeSearchText } from "../normalizers/text";
 import { dedupeTournaments } from "../merge";
-import type { CatalogBatch, CatalogStorage, CatalogSyncStatus, FfeTournamentCatalogItem, TournamentSearchParams } from "../types";
+import { getCatalogStatus } from "../status";
+import type { CatalogBatch, CatalogStorage, FfeTournamentCatalogItem, TournamentSearchParams } from "../types";
 
 export async function readCatalog(storage: CatalogStorage) {
-  const keys = (await storage.list()).filter((key) => /^(months|upcoming)\//.test(key) && key.endsWith(".json"));
+  const indexKeys = (await storage.list("indexes/by-year/")).filter((key) => key.endsWith(".json"));
+  const sourceKeys = indexKeys.length
+    ? indexKeys
+    : (await storage.list("months/")).filter((key) => key.endsWith(".json"));
+  const upcomingKeys = (await storage.list("upcoming/")).filter((key) => key.endsWith(".json"));
+  const keys = [...sourceKeys, ...upcomingKeys];
   const batches = await Promise.all(keys.map((key) => storage.getJSON<CatalogBatch>(key)));
   return dedupeTournaments(batches.flatMap((batch) => batch?.items ?? []));
 }
@@ -47,9 +53,7 @@ export async function searchCatalog(storage: CatalogStorage, params: TournamentS
   const page = Math.max(1, params.page ?? 1);
   const pageSize = Math.min(50, Math.max(1, params.pageSize ?? 20));
   const total = items.length;
-  const status = (await storage.getJSON<CatalogSyncStatus>("metadata/sync-status.json")) ?? {
-    isRefreshing: false, itemCount: 0, updatedMonths: [],
-  };
+  const status = await getCatalogStatus(storage);
   const facet = (values: Array<string | number | undefined>) =>
     Object.entries(values.filter((value) => value !== undefined).reduce<Record<string, number>>((acc, value) => {
       acc[String(value)] = (acc[String(value)] ?? 0) + 1;
@@ -66,9 +70,13 @@ export async function searchCatalog(storage: CatalogStorage, params: TournamentS
       cadences: facet(allFiltered.map((item) => item.cadence)),
     },
     catalog: {
+      catalogCount: status.catalogCount,
+      earliestIndexedDate: status.earliestIndexedDate,
+      latestIndexedDate: status.latestIndexedDate,
       lastSuccessfulSyncAt: status.lastSuccessfulSyncAt,
       lastAttemptAt: status.lastAttemptAt,
       isRefreshing: status.isRefreshing,
+      historicalBackfill: status.historicalBackfill,
       source: "FFE" as const,
     },
   };

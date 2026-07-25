@@ -53,6 +53,46 @@ export type CatalogBatch = {
   sourceUrl: string;
 };
 
+export type HistoricalMonthFailure = {
+  attempts: number;
+  lastAttemptAt: string;
+  lastError: string;
+};
+
+export type HistoricalBackfillState = {
+  version: 1;
+  targetStart: string;
+  targetEnd: string;
+  pendingMonths: string[];
+  completedMonths: string[];
+  emptyMonths: string[];
+  failedMonths: Record<string, HistoricalMonthFailure>;
+  running: boolean;
+  startedAt: string;
+  updatedAt: string;
+  completedAt?: string;
+  lastProcessedMonth?: string;
+  nextResumeAt?: string;
+  chainId?: string;
+  chainBatches: number;
+};
+
+export type CatalogYearIndexMetadata = {
+  count: number;
+  earliestIndexedDate?: string;
+  latestIndexedDate?: string;
+  updatedAt: string;
+};
+
+export type CatalogIndexMetadata = {
+  version: 1;
+  years: Record<string, CatalogYearIndexMetadata>;
+  catalogCount: number;
+  earliestIndexedDate?: string;
+  latestIndexedDate?: string;
+  updatedAt: string;
+};
+
 export interface CatalogStorage {
   getJSON<T>(key: string): Promise<T | null>;
   setJSON(key: string, value: unknown): Promise<void>;

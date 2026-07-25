@@ -19,3 +19,9 @@
 
 [functions."ffe-catalog-announcements-worker"]
   background = true
+
+[functions."ffe-history-backfill"]
+  schedule = "*/10 * * * *"
+
+[functions."ffe-history-backfill-worker"]
+  background = true

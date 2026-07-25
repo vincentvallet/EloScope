@@ -1,5 +1,6 @@
 import { randomUUID } from "node:crypto";
 import { FfeCatalogClient } from "../client";
+import { rebuildYearIndex } from "../indexes";
 import { addUtcMonths, monthKey } from "../normalizers/dates";
 import { dedupeTournaments } from "../merge";
 import { readCatalog } from "../search";
@@ -42,11 +43,6 @@ export async function runCatalogSync(storage: CatalogStorage, mode: SyncMode = "
     const targetMonths = mode === "initial"
       ? Array.from({ length: Math.min(3, now.getUTCMonth() + 1) }, (_, index) => addUtcMonths(now, -index))
       : [addUtcMonths(now, 0), addUtcMonths(now, -1), addUtcMonths(now, -2)];
-    const cursor = await storage.getJSON<{ year: number; month: number }>("metadata/backfill-cursor.json");
-    const historical = cursor
-      ? new Date(Date.UTC(cursor.year, cursor.month - 1, 1))
-      : addUtcMonths(now, -3);
-    if (mode === "daily") targetMonths.push(historical);
     for (const date of targetMonths) {
       const key = monthKey(date);
       const items = dedupeTournaments(await client.resultsMonth(date.getUTCFullYear(), date.getUTCMonth() + 1, controller.signal));
@@ -55,11 +51,8 @@ export async function runCatalogSync(storage: CatalogStorage, mode: SyncMode = "
         sourceUrl: `https://www.echecs.asso.fr/ListeTournois.aspx?Action=RES&Annee=${date.getUTCFullYear()}&Mois=${date.getUTCMonth() + 1}`,
       };
       await storage.setJSON(`months/${key}.json`, batch);
+      await rebuildYearIndex(storage, date.getUTCFullYear());
       updatedMonths.push(key);
-    }
-    if (mode === "daily") {
-      const next = addUtcMonths(historical, -1);
-      await storage.setJSON("metadata/backfill-cursor.json", { year: next.getUTCFullYear(), month: next.getUTCMonth() + 1 });
     }
     const all = await readCatalog(storage);
     const success: CatalogSyncStatus = {

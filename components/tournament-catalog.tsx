@@ -17,7 +17,19 @@ type SearchPayload = {
     departments: Array<{ value: string; count: number }>;
     years: Array<{ value: string; count: number }>;
   };
-  catalog: { lastSuccessfulSyncAt?: string; lastAttemptAt?: string; isRefreshing: boolean };
+  catalog: {
+    catalogCount: number;
+    earliestIndexedDate?: string;
+    latestIndexedDate?: string;
+    lastSuccessfulSyncAt?: string;
+    lastAttemptAt?: string;
+    isRefreshing: boolean;
+    historicalBackfill?: {
+      targetStart: string; targetEnd: string; totalMonths: number; completedMonths: number;
+      emptyMonths: number; failedMonths: number; pendingMonths: number; running: boolean;
+      completed: boolean; lastProcessedMonth?: string; updatedAt: string;
+    };
+  };
 };
 
 const STATUS_LABELS = {
@@ -92,12 +104,23 @@ export function TournamentSearchPage() {
     else if (name === "previous") next.set("year", String(now.getUTCFullYear() - 1));
     else if (name === "upcoming") next.set("status", "upcoming");
     else if (name === "results") next.set("hasResults", "true");
+    else if (name === "since2000") next.set("from", "2000-01-01");
+    else if (name === "2000s") {
+      next.set("from", "2000-01-01"); next.set("to", "2009-12-31");
+    } else if (name === "2010s") {
+      next.set("from", "2010-01-01"); next.set("to", "2019-12-31");
+    } else if (name === "2020s") {
+      next.set("from", "2020-01-01"); next.set("to", "2029-12-31");
+    }
     next.delete("page");
     setFilters(next);
   };
   const refreshedAt = payload?.catalog.lastSuccessfulSyncAt
     ? new Date(payload.catalog.lastSuccessfulSyncAt).toLocaleString("fr-FR", { timeZone: "Europe/Paris" })
     : null;
+  const history = payload?.catalog.historicalBackfill;
+  const progress = history?.totalMonths ? Math.min(100, Math.round((history.completedMonths / history.totalMonths) * 100)) : 0;
+  const oldestYear = payload?.catalog.earliestIndexedDate?.slice(0, 4);
 
   return <div className="plain-page catalog-page">
     <div className="page-heading catalog-heading">
@@ -105,6 +128,13 @@ export function TournamentSearchPage() {
       <h1>Trouver un tournoi</h1>
       <p>Recherchez les tournois publiés par la Fédération Française des Échecs et générez leur rapport EloScope.</p>
     </div>
+    {history && <section className="catalog-history-status" aria-label="État des archives FFE">
+      <div><strong>{history.completed ? "Archives FFE indexées depuis 2000, selon les données publiquement disponibles" : "Archives historiques en cours d’indexation"}</strong>
+        <span>{history.completed ? "Catalogue mis à jour quotidiennement" : `Période actuellement disponible : ${oldestYear ?? "en cours"}–${history.targetEnd.slice(0, 4)}`}</span></div>
+      <div className="catalog-history-metrics"><span><b>{history.completedMonths}</b> / {history.totalMonths} mois vérifiés</span><span><b>{payload.catalog.catalogCount}</b> tournois indexés</span><span>{history.emptyMonths} mois vérifiés sans archive</span></div>
+      <div className="catalog-progress" role="progressbar" aria-label="Progression des archives" aria-valuemin={0} aria-valuemax={100} aria-valuenow={progress}><i style={{ width: `${progress}%` }}/></div>
+      <small>Dernière mise à jour : {new Date(history.updatedAt).toLocaleString("fr-FR", { timeZone: "Europe/Paris" })}</small>
+    </section>}
     <Card className="catalog-search-card">
       <label className="catalog-main-search">
         <Search/>
@@ -115,6 +145,8 @@ export function TournamentSearchPage() {
         <button onClick={() => quick("month")}>Ce mois</button><button onClick={() => quick("three")}>3 derniers mois</button>
         <button onClick={() => quick("year")}>Cette année</button><button onClick={() => quick("previous")}>Année précédente</button>
         <button onClick={() => quick("upcoming")}>À venir</button><button onClick={() => quick("results")}>Rapports disponibles</button>
+        <button onClick={() => quick("since2000")}>Depuis 2000</button><button onClick={() => quick("2000s")}>Années 2000</button>
+        <button onClick={() => quick("2010s")}>Années 2010</button><button onClick={() => quick("2020s")}>Années 2020</button>
       </div>
       <div className="catalog-primary-filters">
         <label>Du<input type="date" value={filters.get("from") ?? ""} onChange={(event) => update("from", event.target.value)}/></label>

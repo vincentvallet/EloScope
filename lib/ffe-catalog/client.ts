@@ -8,14 +8,24 @@ const cache = new Map<string, { expiresAt: number; html: string }>();
 export class FfeCatalogClient {
   private readonly asp: AspNetPostBackClient;
   private robotsChecked = false;
+  private robotsRequests = 0;
 
-  constructor(fetcher: typeof fetch = fetch, private readonly delayMs = 450) {
-    this.asp = new AspNetPostBackClient(fetcher, delayMs);
+  constructor(
+    private readonly fetcher: typeof fetch = fetch,
+    delayMs = 450,
+    jitterMs = 0,
+  ) {
+    this.asp = new AspNetPostBackClient(fetcher, delayMs, jitterMs);
+  }
+
+  get requestCount() {
+    return this.asp.requestCount + this.robotsRequests;
   }
 
   private async checkRobots(signal?: AbortSignal) {
     if (this.robotsChecked) return;
-    const response = await fetch(`${BASE}/robots.txt`, {
+    this.robotsRequests += 1;
+    const response = await this.fetcher(`${BASE}/robots.txt`, {
       signal,
       headers: { "user-agent": "EloScope/1.0 (+mail@vincentvallet.com)" },
     }).catch(() => null);
@@ -29,10 +39,18 @@ export class FfeCatalogClient {
   }
 
   async resultsMonth(year: number, month: number, signal?: AbortSignal) {
+    return (await this.resultsMonthWithStats(year, month, signal)).items;
+  }
+
+  async resultsMonthWithStats(year: number, month: number, signal?: AbortSignal) {
     await this.checkRobots(signal);
     const url = `${BASE}/ListeTournois.aspx?Action=RES&Annee=${year}&Mois=${month}`;
     const pages = await this.asp.pages(url, { maxPages: 80, signal });
-    return pages.flatMap((page) => parseTournamentList(page.html, url, new Date(), "results"));
+    return {
+      items: pages.flatMap((page) => parseTournamentList(page.html, url, new Date(), "results")),
+      pageCount: pages.length,
+      requestCount: this.requestCount,
+    };
   }
 
   async committee(departmentCode: string, signal?: AbortSignal) {

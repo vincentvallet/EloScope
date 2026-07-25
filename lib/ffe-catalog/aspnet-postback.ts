@@ -39,11 +39,25 @@ export function extractPostBacks(html: string) {
 
 export class AspNetPostBackClient {
   private cookie = "";
+  private requests = 0;
+  private lastRequestAt = 0;
 
   constructor(
     private readonly fetcher: typeof fetch = fetch,
     private readonly delayMs = 350,
+    private readonly jitterMs = 0,
   ) {}
+
+  get requestCount() {
+    return this.requests;
+  }
+
+  private async waitForRateLimit() {
+    if (!this.lastRequestAt) return;
+    const targetDelay = this.delayMs + Math.floor(Math.random() * (this.jitterMs + 1));
+    const remaining = targetDelay - (Date.now() - this.lastRequestAt);
+    if (remaining > 0) await new Promise((resolve) => setTimeout(resolve, remaining));
+  }
 
   private async request(url: string, init?: RequestInit) {
     let lastError: unknown;
@@ -51,6 +65,9 @@ export class AspNetPostBackClient {
       const timeout = AbortSignal.timeout(12_000);
       const signal = init?.signal ? AbortSignal.any([init.signal, timeout]) : timeout;
       try {
+        await this.waitForRateLimit();
+        this.lastRequestAt = Date.now();
+        this.requests += 1;
         const response = await this.fetcher(url, {
           ...init,
           signal,
@@ -118,7 +135,6 @@ export class AspNetPostBackClient {
       const signature = postback.argument;
       if (visited.has(signature)) continue;
       visited.add(signature);
-      if (this.delayMs) await new Promise((resolve) => setTimeout(resolve, this.delayMs));
       const fields = extractHiddenFields(pages.at(-1)!.html);
       fields.__EVENTTARGET = postback.target;
       fields.__EVENTARGUMENT = postback.argument;

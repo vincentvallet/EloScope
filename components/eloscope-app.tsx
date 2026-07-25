@@ -6,7 +6,7 @@ import { usePathname } from "next/navigation";
 import type { EChartsOption } from "echarts";
 import {
   ArrowLeft, ArrowRight, BarChart3, Building2, CalendarDays, Check, ChevronDown,
-  CircleAlert, Clock3, Download, Gauge, HelpCircle, Home, Import,
+  CircleAlert, Clock3, Download, Gauge, HelpCircle, Import,
   Info, Menu, Printer, RefreshCcw, Search, Settings, Star, Target, Trophy,
   Users,
 } from "lucide-react";
@@ -283,12 +283,18 @@ export function EloScopeApp() {
     return report.players.filter((player) => player.name.toLocaleLowerCase("fr").includes(term)).slice(0, 6);
   }, [report, search]);
   const navigation = [
-    { href: "/", label: "Accueil", icon: Home },
-    { href: "/tournois", label: "Recherche", icon: Search },
-    { href: report ? `${BASE}/vue-ensemble` : "/importer", label: "Tournois", icon: Trophy },
-    { href: report ? `${BASE}/classement` : "/importer", label: "Classement", icon: BarChart3 },
-    { href: report ? `${BASE}/clubs` : "/importer", label: "Clubs", icon: Building2 },
-    { href: report ? `${BASE}/rondes` : "/importer", label: "Rondes", icon: CalendarDays },
+    { href: "/tournois", label: "Recherche", icon: Search, active: pathname === "/" || pathname.startsWith("/tournois") },
+    {
+      href: report ? `${BASE}/vue-ensemble` : "/importer",
+      label: "Lien FFE",
+      icon: Trophy,
+      active: pathname === "/importer" || pathname.endsWith("/vue-ensemble"),
+    },
+    ...(report ? [
+      { href: `${BASE}/classement`, label: "Classement", icon: BarChart3, active: pathname.endsWith("/classement") || pathname.includes("/joueurs/") },
+      { href: `${BASE}/clubs`, label: "Clubs", icon: Building2, active: pathname.endsWith("/clubs") },
+      { href: `${BASE}/rondes`, label: "Rondes", icon: CalendarDays, active: pathname.endsWith("/rondes") },
+    ] : []),
   ];
   const changeTournament = (key: string) => {
     const selected = reports.find((item) => reportKey(item) === key);
@@ -303,20 +309,13 @@ export function EloScopeApp() {
   return (
     <div className="app-shell">
       <aside className={`sidebar ${mobileOpen ? "open" : ""}`}>
-        <a className="brand" href="/" aria-label="EloScope, accueil">
+        <a className="brand" href="/tournois" aria-label="EloScope, recherche de tournois">
           <Image className="brand-logo" src="/eloscope-logo.png" alt="" width={585} height={217} priority unoptimized />
         </a>
         <nav aria-label="Navigation principale">
           {navigation.map((item) => {
             const Icon = item.icon;
-            const active = item.href === "/"
-              ? pathname === "/"
-              : item.label === "Tournois"
-                ? pathname.endsWith("/vue-ensemble")
-                : item.label === "Classement"
-                  ? pathname.endsWith("/classement") || pathname.includes("/joueurs/")
-                  : pathname.startsWith(item.href);
-            return <a href={item.href} className={active ? "active" : ""} key={item.label}><Icon size={18}/><span>{item.label}</span></a>;
+            return <a href={item.href} className={item.active ? "active" : ""} key={item.label}><Icon size={18}/><span>{item.label}</span></a>;
           })}
         </nav>
         <div className="sidebar-section"><span>Session</span><a href="/rapports-recents"><Clock3 size={16}/>Historique récent</a></div>
@@ -351,8 +350,8 @@ export function EloScopeApp() {
           <PageRouter pathname={pathname} report={report} reports={reports} ready={ready} setReport={setReport}/>
         </main>
       </div>
-      <nav className="mobile-nav" aria-label="Navigation mobile">
-        {navigation.slice(0, 4).map((item) => { const Icon = item.icon; return <a href={item.href} key={item.label}><Icon size={19}/><span>{item.label}</span></a>; })}
+      <nav className="mobile-nav" aria-label="Navigation mobile" style={{ gridTemplateColumns: `repeat(${Math.min(5, navigation.length + 1)}, 1fr)` }}>
+        {navigation.slice(0, 4).map((item) => { const Icon = item.icon; return <a href={item.href} className={item.active ? "active" : ""} key={item.label}><Icon size={19}/><span>{item.label}</span></a>; })}
         <button onClick={() => setMobileOpen(true)}><Menu size={19}/><span>Plus</span></button>
       </nav>
     </div>
@@ -369,7 +368,7 @@ function PageRouter({
   setReport: (report: NormalizedTournament) => void;
 }) {
   if (!ready) return <div className="narrow-page"><Card className="empty-state"><strong>Chargement du rapport…</strong></Card></div>;
-  if (pathname === "/") return <HomePage reports={reports} setReport={setReport}/>;
+  if (pathname === "/") return <TournamentSearchPage/>;
   if (pathname === "/tournois") return <TournamentSearchPage/>;
   if (/^\/tournois\/\d+$/.test(pathname)) return <TournamentDetailPage ffeRef={pathname.split("/").at(-1)!} setReport={setReport}/>;
   if (pathname === "/importer") return <ImportPage setReport={setReport}/>;
@@ -381,31 +380,7 @@ function PageRouter({
   if (pathname.endsWith("/clubs")) return <ClubsPage report={report}/>;
   if (pathname.endsWith("/rondes")) return <RoundsPage report={report}/>;
   if (pathname.startsWith("/tournoi/")) return <TournamentOverview report={report}/>;
-  return <HomePage reports={reports} setReport={setReport}/>;
-}
-
-function HomePage({ reports, setReport }: { reports: NormalizedTournament[]; setReport: (report: NormalizedTournament) => void }) {
-  return (
-    <div className="home-page">
-      <section className="hero">
-        <span className="eyebrow"><Target size={16}/>Résultats officiels FFE</span>
-        <h1>Analysez un tournoi FFE</h1>
-        <p>Collez le lien de la fiche tournoi : EloScope récupère la liste des participants, leurs clubs et la grille américaine.</p>
-        <ImportPanel compact setReport={setReport}/>
-      </section>
-      {reports.length > 0 && <div className="home-section">
-        <SectionTitle>Derniers rapports importés</SectionTitle>
-        <div className="report-grid">
-          {reports.map((storedReport) => <a href={`${BASE}/vue-ensemble`} className="report-card" onClick={() => setReport(storedReport)} key={reportKey(storedReport)}>
-            <div className="report-badge"><Trophy/></div><span className="status-pill success"><Check/>FFE</span>
-            <h3>{storedReport.report.title}</h3>
-            <p><Users size={15}/>{storedReport.players.length} joueurs · {storedReport.report.currentRound} rondes disponibles</p>
-            <small>Importé le {new Date(storedReport.report.importedAt).toLocaleString("fr-FR", { timeZone: "Europe/Paris" })}</small>
-          </a>)}
-        </div>
-      </div>}
-    </div>
-  );
+  return <TournamentSearchPage/>;
 }
 
 function ImportPage({ setReport }: { setReport: (report: NormalizedTournament) => void }) {
@@ -469,7 +444,7 @@ function NoReport() {
 function TournamentHeader({ report, active }: { report: NormalizedTournament; active: string }) {
   const tabs = [["vue-ensemble", "Vue d’ensemble"], ["classement", "Classement"], ["clubs", "Clubs"], ["rondes", "Rondes"]];
   return <>
-    <div className="breadcrumbs"><a href="/">Accueil</a><span>/</span><strong>{report.report.title}</strong></div>
+    <div className="breadcrumbs"><a href="/tournois">Recherche</a><span>/</span><strong>{report.report.title}</strong></div>
     <div className="tournament-head">
       <div className="tournament-emblem"><Trophy/></div>
       <div><span className="status-pill success"><Check/>Source FFE</span><h1>{report.report.title}</h1><p><CalendarDays/>Données après la ronde {report.report.currentRound} sur {report.report.totalRounds}</p><small>Importé le {new Date(report.report.importedAt).toLocaleString("fr-FR", { timeZone: "Europe/Paris" })}</small></div>

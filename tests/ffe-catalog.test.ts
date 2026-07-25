@@ -13,6 +13,14 @@ import type { CatalogBatch } from "@/lib/ffe-catalog/types";
 const fixture = (name: string) => readFile(new URL(`./fixtures/${name}`, import.meta.url), "utf8");
 
 describe("catalogue FFE", () => {
+  it.each([2000, 2005, 2010, 2015, 2020, 2025])("parse une archive mensuelle %i sans réseau", async (year) => {
+    const html = await fixture(`ffe-results-${year}.html`);
+    const items = parseTournamentList(html, `https://www.echecs.asso.fr/ListeTournois.aspx?Action=RES&Annee=${year}&Mois=1`);
+    expect(items).toHaveLength(1);
+    expect(items[0].year).toBe(year);
+    expect(items[0].ffeRef).toMatch(/^\d+$/);
+  });
+
   it("lit une liste mensuelle, les résultats, la Corse et l'outre-mer", async () => {
     const html = await fixture("ffe-results.html");
     const items = parseTournamentList(html, "https://www.echecs.asso.fr/ListeTournois.aspx?Action=RES", new Date("2026-02-28T12:00:00Z"));
