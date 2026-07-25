@@ -10,7 +10,9 @@ import type {
 import { estimatePerformance } from "@/lib/rating/engine";
 
 const ALLOWED_HOSTS = new Set(["echecs.asso.fr", "www.echecs.asso.fr"]);
-const MAX_BYTES = 2_000_000;
+// Large Swiss-system grids can legitimately exceed 2 MB (Cappelle 2026 is
+// about 2.64 MB). Keep a strict cap while allowing these major events.
+const MAX_BYTES = 4_000_000;
 
 export function validateFfeUrl(input: string) {
   const url = new URL(input);
