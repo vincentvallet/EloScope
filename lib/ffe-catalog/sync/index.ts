@@ -11,9 +11,20 @@ const LOCK_KEY = "locks/catalog-sync.json";
 
 export async function runCatalogSync(storage: CatalogStorage, mode: SyncMode = "daily", now = new Date()) {
   const owner = randomUUID();
-  const existingLock = await storage.getJSON<{ owner: string; expiresAt: string }>(LOCK_KEY);
-  if (existingLock && existingLock.expiresAt > now.toISOString()) return { skipped: "locked" as const };
-  await storage.setJSON(LOCK_KEY, { owner, expiresAt: new Date(now.getTime() + 14 * 60_000).toISOString() });
+  const existingLock = await storage.getJSON<{ owner: string; createdAt?: string; expiresAt: string }>(LOCK_KEY);
+  const inferredCreatedAt = existingLock?.createdAt
+    ? new Date(existingLock.createdAt).getTime()
+    : existingLock
+      ? new Date(existingLock.expiresAt).getTime() - 14 * 60_000
+      : 0;
+  if (existingLock && existingLock.expiresAt > now.toISOString() && now.getTime() - inferredCreatedAt < 8 * 60_000) {
+    return { skipped: "locked" as const };
+  }
+  await storage.setJSON(LOCK_KEY, {
+    owner,
+    createdAt: now.toISOString(),
+    expiresAt: new Date(now.getTime() + 14 * 60_000).toISOString(),
+  });
   const verifiedLock = await storage.getJSON<{ owner: string }>(LOCK_KEY);
   if (verifiedLock?.owner !== owner) return { skipped: "locked" as const };
   const previousStatus = await storage.getJSON<CatalogSyncStatus>(STATUS_KEY);
@@ -29,7 +40,7 @@ export async function runCatalogSync(storage: CatalogStorage, mode: SyncMode = "
   const updatedMonths: string[] = [];
   try {
     const targetMonths = mode === "initial"
-      ? Array.from({ length: now.getUTCMonth() + 1 }, (_, index) => new Date(Date.UTC(now.getUTCFullYear(), index, 1)))
+      ? Array.from({ length: now.getUTCMonth() + 1 }, (_, index) => addUtcMonths(now, -index))
       : [addUtcMonths(now, 0), addUtcMonths(now, -1), addUtcMonths(now, -2)];
     const cursor = await storage.getJSON<{ year: number; month: number }>("metadata/backfill-cursor.json");
     const historical = cursor

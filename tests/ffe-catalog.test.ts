@@ -33,7 +33,7 @@ describe("catalogue FFE", () => {
       new Response(init?.method === "POST" ? page2 : page1, { status: 200, headers: { "content-type": "text/html" } }));
     const pages = await new AspNetPostBackClient(fetcher as typeof fetch, 0).pages("https://www.echecs.asso.fr/ListeTournois.aspx", { maxPages: 5 });
     expect(pages).toHaveLength(2);
-    expect(fetcher).toHaveBeenCalledTimes(3);
+    expect(fetcher).toHaveBeenCalledTimes(2);
     const postBody = String(fetcher.mock.calls[1][1]?.body);
     expect(postBody).toContain("__VIEWSTATE=fixture-state");
     expect(postBody).toContain("__EVENTTARGET=ctl00%24ContentPlaceHolderMain%24PagerHeader");

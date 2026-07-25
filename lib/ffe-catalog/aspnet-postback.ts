@@ -26,7 +26,9 @@ export function extractPostBacks(html: string) {
     const href = $(element).attr("href") ?? "";
     const match = href.match(/__doPostBack\(['"]([^'"]+)['"],['"]([^'"]*)['"]\)/);
     if (!match || !/pager/i.test(match[1])) return;
-    const key = `${match[1]}\0${match[2]}`;
+    // Header and footer pagers target different controls but represent the
+    // same page. Canonicalizing by argument halves requests to the FFE.
+    const key = match[2];
     if (!seen.has(key)) {
       seen.add(key);
       postbacks.push({ target: match[1], argument: match[2] });
@@ -109,11 +111,11 @@ export class AspNetPostBackClient {
     const maxPages = options.maxPages ?? 50;
     const pages: AspNetPage[] = [{ ...first, pageIndex: 1 }];
     const queue = extractPostBacks(first.html);
-    const visited = new Set<string>();
+    const visited = new Set<string>(["1"]);
     const fingerprints = new Set([fingerprint(first.html)]);
     while (queue.length && pages.length < maxPages) {
       const postback = queue.shift()!;
-      const signature = `${postback.target}\0${postback.argument}`;
+      const signature = postback.argument;
       if (visited.has(signature)) continue;
       visited.add(signature);
       if (this.delayMs) await new Promise((resolve) => setTimeout(resolve, this.delayMs));
@@ -126,7 +128,7 @@ export class AspNetPostBackClient {
       fingerprints.add(nextFingerprint);
       pages.push({ ...next, pageIndex: pages.length + 1 });
       for (const candidate of extractPostBacks(next.html)) {
-        const candidateSignature = `${candidate.target}\0${candidate.argument}`;
+        const candidateSignature = candidate.argument;
         if (!visited.has(candidateSignature)) queue.push(candidate);
       }
     }
