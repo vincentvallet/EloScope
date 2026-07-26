@@ -85,18 +85,19 @@ export class FideClient {
       let timer: ReturnType<typeof setTimeout> | undefined;
       try {
         this.lastRequestAt = Date.now();
+        const hardTimeout = new Promise<never>((_, reject) => {
+          timer = setTimeout(() => {
+            controller.abort("timeout");
+            reject(new FideSourceError("TIMEOUT", `Délai FIDE dépassé après ${timeoutMs} ms`, url.toString()));
+          }, timeoutMs);
+        });
         const response = await Promise.race([
           this.fetcher(url, {
             headers: { "user-agent": USER_AGENT, accept: "text/html,application/xhtml+xml", ...extraHeaders },
             redirect: "follow",
             signal: controller.signal,
           }),
-          new Promise<never>((_, reject) => {
-            timer = setTimeout(() => {
-              controller.abort("timeout");
-              reject(new FideSourceError("TIMEOUT", `Délai FIDE dépassé après ${timeoutMs} ms`, url.toString()));
-            }, timeoutMs);
-          }),
+          hardTimeout,
         ]);
         if (!response.ok) {
           const code = response.status === 403 ? "HTTP_403"
@@ -113,7 +114,7 @@ export class FideClient {
         const declared = Number(response.headers.get("content-length"));
         const limit = this.options.maxBytes ?? 5_000_000;
         if (declared > limit) throw new Error("Réponse FIDE trop volumineuse");
-        const body = await response.text();
+        const body = await Promise.race([response.text(), hardTimeout]);
         if (new TextEncoder().encode(body).byteLength > limit) throw new Error("Réponse FIDE trop volumineuse");
         this.breaker.success();
         this.options.logger?.({ source: "fide", status: response.status, url: url.pathname, bytes: body.length, attempt });

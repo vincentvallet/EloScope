@@ -255,6 +255,20 @@ describe("cache, flux et résilience", () => {
       maxDelayMs: 0,
     });
     await expect(timeout.html("https://ratings.fide.com/profile/990001")).rejects.toMatchObject({ code: "TIMEOUT" });
+    const stalledBody = new FideClient({
+      storage: new MemoryFideStorage(),
+      fetch: async () => ({
+        ok: true,
+        status: 200,
+        headers: new Headers({ "content-type": "text/html" }),
+        text: async () => new Promise<string>(() => {}),
+      }) as Response,
+      timeoutMs: 1,
+      retries: 0,
+      minDelayMs: 0,
+      maxDelayMs: 0,
+    });
+    await expect(stalledBody.html("https://ratings.fide.com/profile/990002")).rejects.toMatchObject({ code: "TIMEOUT" });
   });
 
   it("le watchdog respecte verrou, backoff et maximum de tentatives", () => {
