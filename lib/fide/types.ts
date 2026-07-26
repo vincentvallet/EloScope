@@ -59,7 +59,14 @@ export type FideEventResult = {
   sourceUrl: string;
 };
 
-export type GlobalReportStatus = "missing" | "queued" | "building" | "ready" | "partial" | "error";
+export type GlobalReportStatus =
+  | "idle"
+  | "queued"
+  | "building"
+  | "partial_ready"
+  | "ready"
+  | "retry_wait"
+  | "failed";
 
 export type PlayerGlobalReport = {
   version: 1;
@@ -108,14 +115,23 @@ export type PlayerGlobalReport = {
 };
 
 export type PlayerReportMetadata = {
+  playerKey: string;
   status: GlobalReportStatus;
-  ffeCode: string;
+  ffeCode?: string;
   fideId?: string;
+  attemptId?: string;
   progress: number;
+  currentStage?: string;
   currentStep?: string;
+  lastSuccessfulStage?: string;
   completedYears: number[];
-  requestedAt: string;
+  retryCount: number;
+  nextRetryAt?: string;
+  lockOwner?: string;
+  lockExpiresAt?: string;
+  lastErrorCode?: string;
+  lastErrorMessage?: string;
+  createdAt: string;
   updatedAt: string;
-  retryAfter?: string;
-  error?: string;
+  completedAt?: string;
 };

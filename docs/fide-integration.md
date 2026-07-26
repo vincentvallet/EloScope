@@ -15,7 +15,7 @@ Une partie « classée » désigne une ligne de calcul ou de rapport officiel. E
 
 `FideClient` utilise `EloScope/1.0 (+mail@vincentvallet.com)`, une seule requête active, 800 à 1 500 ms entre requêtes, un timeout de 15 secondes, une limite de 5 Mo, une validation d’hôte et de type MIME, un retry borné et un circuit breaker. Les erreurs 403, 429 et 503 arrêtent immédiatement le lot. Un cache expiré peut être servi en mode dégradé.
 
-Les logs sont structurés et ne contiennent ni HTML brut ni données personnelles. Aucun CAPTCHA, compte, jeton privé ou contournement n’est utilisé.
+Les logs structurés indiquent l’`attemptId`, l’étape, la progression précédente et courante, le verrou, le nombre de tentatives et, lors d’une panne, le code classé (`TIMEOUT`, `NETWORK`, `HTTP_403`, `HTTP_429`, `HTTP_500`, `HTTP_503`, `UNEXPECTED_HTML`, `NOT_FOUND` ou erreur de parseur), l’URL et le statut HTTP. Ils ne contiennent ni HTML brut ni données personnelles inutiles. Aucun CAPTCHA, compte, jeton privé ou contournement n’est utilisé.
 
 ## Stockage et synchronisation
 
@@ -28,6 +28,7 @@ fide/rating-lists/YYYY-MM/players/FRA-XX.json
 fide/rating-lists/latest.json
 fide/player-reports/{ffeCode}/metadata.json
 fide/player-reports/{ffeCode}/report.json
+fide/player-reports/{ffeCode}/checkpoints/{stage}.json
 fide/player-reports/{ffeCode}/years/YYYY.json
 ```
 

@@ -1,5 +1,5 @@
 import { FfePlayersClient } from "./client";
-import { identityConfidence, normalizePlayerName, playerNameIndexSegment } from "./identity";
+import { identityConfidence, normalizePlayerName, playerNameIndexSegments } from "./identity";
 import type { FfePlayerProfile, PlayerStorage, PlayerTournamentParticipation } from "./types";
 
 const PROFILE_TTL = 24 * 60 * 60_000;
@@ -20,7 +20,9 @@ export async function savePlayerProfiles(storage: PlayerStorage, profiles: FfePl
     for (const token of tokens) {
       await storage.setJSON(`indexes/player-prefix/${token.slice(0, 3)}/${profile.ffeCode}.json`, { ffeCode: profile.ffeCode });
     }
-    const participationKeys = await storage.list(`participations/by-name/${playerNameIndexSegment(profile.displayName)}/`);
+    const participationKeys = [...new Set((await Promise.all(
+      playerNameIndexSegments(profile.displayName).map((segment) => storage.list(`participations/by-name/${segment}/`)),
+    )).flat())];
     for (const key of participationKeys) {
       const participation = await storage.getJSON<PlayerTournamentParticipation>(key);
       if (!participation) continue;

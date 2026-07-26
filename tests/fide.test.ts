@@ -9,10 +9,15 @@ import { expectedScore, ratingChange, computeStatistics, deterministicSummary, h
 import { MemoryFideStorage } from "@/lib/fide/storage/memory";
 import { readFideCache, writeFideCache } from "@/lib/fide/cache";
 import { syncFideRatingList } from "@/lib/fide/sync/rating-list";
-import { buildGlobalReport, queueGlobalReport } from "@/lib/fide/report";
+import { buildGlobalReport, queueGlobalReport, shouldDispatchReport } from "@/lib/fide/report";
 import { FideClient, FIDE_USER_AGENT } from "@/lib/fide/client";
 import type { FideRatedGame, FideRatingPoint } from "@/lib/fide/types";
 import { fideStorage } from "@/lib/fide/storage";
+import { MemoryPlayerStorage } from "@/lib/ffe-players/storage";
+import { FideSourceError } from "@/lib/fide/errors";
+import { LocalFileFideStorage } from "@/lib/fide/storage/local-files";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
 
 const fixture = (name: string) => readFile(new URL(`fixtures/${name}`, import.meta.url), "utf8");
 
@@ -99,6 +104,12 @@ describe("cache, flux et résilience", () => {
     await writeFideCache(storage, "cache/x", { ok: true }, "https://example.test", 60_000);
     expect((await readFideCache<{ ok: boolean }>(storage, "cache/x"))?.value.ok).toBe(true);
   });
+  it("isole aussi les checkpoints dans un stockage fichiers local", async () => {
+    const storage = new LocalFileFideStorage(join(tmpdir(), `eloscope-fide-test-${crypto.randomUUID()}`));
+    const queued = await queueGlobalReport("A12345", storage, new Date("2026-07-01T00:00:00.000Z"));
+    expect(queued.metadata).toMatchObject({ playerKey: "A12345", status: "queued", progress: 0 });
+    expect(await storage.getJSON("fide/player-reports/A12345/metadata.json")).toMatchObject({ status: "queued" });
+  });
   it("ignore un cache expiré mais peut servir sa version stale", async () => {
     const storage = new MemoryFideStorage();
     await storage.setJSON("cache/x", { value: 7, fetchedAt: "2020-01-01T00:00:00Z", expiresAt: "2020-01-01T00:00:01Z", sourceUrl: "https://example.test" });
@@ -166,6 +177,184 @@ describe("cache, flux et résilience", () => {
     expect((await queueGlobalReport("a12345", storage, now)).state).toBe("queued");
     expect((await queueGlobalReport("A12345", storage, new Date("2026-07-01T00:01:00.000Z"))).state).toBe("pending");
   });
+  it("conserve 35 % et reprend au checkpoint après une panne FIDE", async () => {
+    const fide = new MemoryFideStorage();
+    const players = new MemoryPlayerStorage();
+    await players.setJSON("players/profiles/A12345.json", {
+      ffeCode: "A12345",
+      ffeInternalId: "101",
+      fideId: "990001",
+      lastName: "MARTIN",
+      firstName: "Alice",
+      displayName: "Alice MARTIN",
+      normalizedName: "ALICE MARTIN",
+      sourceUrl: "https://www.echecs.asso.fr/FicheJoueur.aspx?Id=101",
+      fetchedAt: "2026-07-01T00:00:00.000Z",
+    });
+    const profileHtml = await fixture("fide-profile.html");
+    const failingClient = new FideClient({
+      storage: fide,
+      retries: 0,
+      minDelayMs: 0,
+      maxDelayMs: 0,
+      fetch: async (input) => String(input).includes("/profile/")
+        ? new Response(profileHtml, { headers: { "content-type": "text/html" } })
+        : (() => { throw new TypeError("fetch failed"); })(),
+    });
+    const first = await buildGlobalReport("A12345", { fide, players, client: failingClient });
+    expect(first).toMatchObject({
+      state: "retry_wait",
+      report: { ffeCode: "A12345", fideId: "990001", coverage: { completeYears: [] } },
+      metadata: { progress: 35, lastSuccessfulStage: "ratings", retryCount: 1, lastErrorCode: "NETWORK" },
+    });
+    expect(await fide.getJSON("fide/player-reports/A12345/checkpoints/ratings.json")).not.toBeNull();
+
+    const calculationsHtml = await fixture("fide-calculations.html");
+    const eventHtml = await fixture("fide-event.html");
+    let profileRequests = 0;
+    const healthyClient = new FideClient({
+      storage: fide,
+      retries: 0,
+      minDelayMs: 0,
+      maxDelayMs: 0,
+      fetch: async (input) => {
+        const url = String(input);
+        if (url.includes("/profile/")) profileRequests += 1;
+        return new Response(url.includes("report.phtml") ? eventHtml : calculationsHtml, {
+          headers: { "content-type": "text/html" },
+        });
+      },
+    });
+    const resumed = await buildGlobalReport("A12345", { fide, players, client: healthyClient });
+    expect(resumed).toMatchObject({ state: "ready", metadata: { progress: 100, retryCount: 0 } });
+    expect(profileRequests).toBe(0);
+  });
+
+  it("classe les erreurs HTTP et timeout sans réessai immédiat", async () => {
+    for (const [status, code] of [[403, "HTTP_403"], [429, "HTTP_429"], [503, "HTTP_503"]] as const) {
+      const client = new FideClient({
+        storage: new MemoryFideStorage(),
+        fetch: async () => new Response("panne", { status, headers: { "content-type": "text/html" } }),
+        retries: 0,
+        minDelayMs: 0,
+        maxDelayMs: 0,
+      });
+      await expect(client.html("https://ratings.fide.com/profile/990001")).rejects.toMatchObject({ code });
+    }
+    const timeout = new FideClient({
+      storage: new MemoryFideStorage(),
+      fetch: async (_input, init) => new Promise((_resolve, reject) => {
+        init?.signal?.addEventListener("abort", () => reject(new DOMException("aborted", "AbortError")));
+      }),
+      timeoutMs: 1,
+      retries: 0,
+      minDelayMs: 0,
+      maxDelayMs: 0,
+    });
+    await expect(timeout.html("https://ratings.fide.com/profile/990001")).rejects.toMatchObject({ code: "TIMEOUT" });
+  });
+
+  it("le watchdog respecte verrou, backoff et maximum de tentatives", () => {
+    const base = {
+      playerKey: "A12345",
+      ffeCode: "A12345",
+      progress: 35,
+      completedYears: [],
+      retryCount: 1,
+      createdAt: "2026-07-01T00:00:00.000Z",
+      updatedAt: "2026-07-01T00:00:00.000Z",
+      status: "retry_wait" as const,
+      nextRetryAt: "2026-07-01T00:05:00.000Z",
+    };
+    const before = new Date("2026-07-01T00:04:00.000Z");
+    const after = new Date("2026-07-01T00:06:00.000Z");
+    expect(shouldDispatchReport(base, null, before)).toBe(false);
+    expect(shouldDispatchReport(base, null, after)).toBe(true);
+    expect(shouldDispatchReport(base, { expiresAt: "2026-07-01T00:07:00.000Z" }, after)).toBe(false);
+    expect(shouldDispatchReport({ ...base, retryCount: 3 }, null, after)).toBe(false);
+    expect(shouldDispatchReport({ ...base, status: "partial_ready" }, null, after)).toBe(false);
+  });
+
+  it("refuse aussi un clic de reprise avant nextRetryAt", async () => {
+    const storage = new MemoryFideStorage();
+    await storage.setJSON("fide/player-reports/A12345/metadata.json", {
+      playerKey: "A12345",
+      ffeCode: "A12345",
+      status: "retry_wait",
+      progress: 35,
+      completedYears: [],
+      retryCount: 1,
+      nextRetryAt: "2026-07-01T00:05:00.000Z",
+      createdAt: "2026-07-01T00:00:00.000Z",
+      updatedAt: "2026-07-01T00:01:00.000Z",
+    });
+    expect((await queueGlobalReport("A12345", storage, new Date("2026-07-01T00:04:00.000Z"))).state).toBe("pending");
+  });
+
+  it("passe en rapport partiel au troisième échec sans perdre 35 %", async () => {
+    const fide = new MemoryFideStorage();
+    const fidePlayer = parseFideProfile(await fixture("fide-profile.html"), "990001");
+    const prefix = "fide/player-reports/A12345";
+    await fide.setJSON(`${prefix}/metadata.json`, {
+      playerKey: "A12345",
+      ffeCode: "A12345",
+      fideId: "990001",
+      status: "retry_wait",
+      progress: 35,
+      currentStage: "calculations",
+      lastSuccessfulStage: "ratings",
+      completedYears: [],
+      retryCount: 2,
+      createdAt: "2026-07-01T00:00:00.000Z",
+      updatedAt: "2026-07-01T00:05:00.000Z",
+    });
+    await fide.setJSON(`${prefix}/checkpoints/identity.json`, {
+      ffeCode: "A12345",
+      fideId: "990001",
+      lastName: "MARTIN",
+      firstName: "Alice",
+      displayName: "Alice MARTIN",
+      normalizedName: "ALICE MARTIN",
+      fetchedAt: "2026-07-01T00:00:00.000Z",
+    });
+    await fide.setJSON(`${prefix}/checkpoints/fide_identity.json`, { fideId: "990001" });
+    await fide.setJSON(`${prefix}/checkpoints/fide_profile.json`, fidePlayer);
+    await fide.setJSON(`${prefix}/checkpoints/ratings.json`, fidePlayer.ratings);
+    const failingClient = new FideClient({
+      storage: fide,
+      retries: 0,
+      minDelayMs: 0,
+      maxDelayMs: 0,
+      fetch: async () => { throw new TypeError("fetch failed"); },
+    });
+    const result = await buildGlobalReport("A12345", {
+      fide,
+      players: new MemoryPlayerStorage(),
+      client: failingClient,
+    });
+    expect(result).toMatchObject({
+      state: "partial_ready",
+      metadata: { status: "partial_ready", retryCount: 3, progress: 35, lastSuccessfulStage: "ratings" },
+    });
+    expect(shouldDispatchReport(result.metadata!, null, new Date("2099-01-01"))).toBe(false);
+  });
+
+  it("expose une erreur d'écriture sans remplacer le checkpoint valide", async () => {
+    class FailingStorage extends MemoryFideStorage {
+      fail = false;
+      override async setJSON(storageKey: string, value: unknown) {
+        if (this.fail && storageKey.endsWith("/metadata.json")) throw new Error("blob write failed");
+        await super.setJSON(storageKey, value);
+      }
+    }
+    const storage = new FailingStorage();
+    await queueGlobalReport("A12345", storage, new Date("2026-07-01T00:00:00.000Z"));
+    const previous = await storage.getJSON("fide/player-reports/A12345/metadata.json");
+    storage.fail = true;
+    await expect(queueGlobalReport("A12345", storage, new Date("2026-07-01T00:06:00.000Z"))).rejects.toBeInstanceOf(FideSourceError);
+    expect(await storage.getJSON("fide/player-reports/A12345/metadata.json")).toEqual(previous);
+  });
+
   it("force le stockage mémoire pendant les tests même sous variables Netlify", () => {
     const previous = process.env.NETLIFY;
     process.env.NETLIFY = "true";

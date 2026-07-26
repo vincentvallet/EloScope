@@ -4,7 +4,7 @@
 
 Le store historique des rapports de tournois n’est pas modifié. Les rapports joueurs FIDE utilisent un store séparé `eloscope-fide`, un verrou court par code FFE et des segments annuels. L’écriture du rapport validé précède la métadonnée `ready`, ce qui évite qu’un lecteur voie un état final sans données.
 
-Le watchdog ne parcourt que les métadonnées de rapports déjà demandés. Il traite au plus un rapport par invocation et respecte `retryAfter`; il ne lance aucun scan de joueurs.
+Le watchdog ne parcourt que les métadonnées de rapports déjà demandés. Il traite au plus un rapport par invocation, respecte `nextRetryAt`, le verrou et la limite de trois tentatives rapprochées ; il ignore `partial_ready` et `ready` et ne lance aucun scan de joueurs.
 
 ## Parcours
 

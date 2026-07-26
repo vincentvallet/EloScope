@@ -6,6 +6,9 @@ import { parseFideProfile } from "@/lib/fide/parsers/profile";
 import { MemoryFideStorage } from "@/lib/fide/storage/memory";
 import { MemoryPlayerStorage } from "@/lib/ffe-players/storage";
 import { buildGlobalReport } from "@/lib/fide/report";
+import { FfeResultsAdapter } from "@/lib/importers/ffe";
+import { savePlayerProfiles } from "@/lib/ffe-players/search";
+import { indexTournamentParticipations } from "@/lib/ffe-players/participation-index";
 
 describe.skipIf(process.env.FIDE_NETWORK_SMOKE !== "1")("smoke réseau FFE/FIDE borné", () => {
   it("résout uniquement l'identité de validation et lit son profil officiel sans conserver le HTML", async () => {
@@ -23,7 +26,17 @@ describe.skipIf(process.env.FIDE_NETWORK_SMOKE !== "1")("smoke réseau FFE/FIDE 
     expect(fide).toMatchObject({ fideId: "637610", standardRating: expect.any(Number) });
     expect(fide.ratings.length).toBeGreaterThan(12);
     const players = new MemoryPlayerStorage();
-    await players.setJSON("players/profiles/W16194.json", profile);
+    await savePlayerProfiles(players, [profile]);
+    const ffeTournament = new FfeResultsAdapter();
+    const tournamentSource = await ffeTournament.fetchSource("https://echecs.asso.fr/FicheTournoi.aspx?Ref=40880");
+    const tournament = ffeTournament.normalize(await ffeTournament.parseSource(tournamentSource));
+    expect(tournament.players.some((player) => /VALLET Vincent/i.test(player.name))).toBe(true);
+    await indexTournamentParticipations(players, "40880", tournament);
+    expect(await players.getJSON("players/by-code/W16194/participations/40880.json")).toMatchObject({
+      ffeCode: "W16194",
+      tournamentRef: "40880",
+      identityConfidence: "strong_name_match",
+    });
     const built = await buildGlobalReport("W16194", {
       fide: isolatedStorage,
       players,

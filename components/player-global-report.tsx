@@ -26,51 +26,81 @@ export function PlayerGlobalReportView({ ffeCode }: { ffeCode: string }) {
   const [generating, setGenerating] = useState(false);
   const [error, setError] = useState("");
   const [pollToken, setPollToken] = useState(0);
-  const load = useCallback(async () => {
-    const response = await fetch(`/api/players/${ffeCode}/global-report`);
+  const [clock, setClock] = useState(0);
+  const load = useCallback(async (signal?: AbortSignal) => {
+    const response = await fetch(`/api/players/${ffeCode}/global-report`, { signal });
     const body = await response.json() as Payload;
     setPayload(body);
+    setClock(Date.now());
     return body;
   }, [ffeCode]);
   useEffect(() => {
     let cancelled = false;
     let timer: ReturnType<typeof setTimeout> | undefined;
+    let inFlight = false;
+    const controller = new AbortController();
     const refresh = async () => {
+      if (cancelled || inFlight) return;
+      inFlight = true;
       try {
-        const body = await load();
-        if (!cancelled && ["queued", "pending", "building", "partial"].includes(body.state)) timer = setTimeout(refresh, 2500);
-      } catch {}
+        const body = await load(controller.signal);
+        if (!cancelled && ["queued", "pending", "building", "retry_wait"].includes(body.state)) {
+          timer = setTimeout(refresh, body.state === "retry_wait" ? 15_000 : 2500);
+        }
+      } catch (caught) {
+        if (!controller.signal.aborted) setError(caught instanceof Error ? caught.message : "Lecture indisponible");
+      } finally { inFlight = false; }
     };
     refresh();
-    return () => { cancelled = true; if (timer) clearTimeout(timer); };
+    return () => { cancelled = true; controller.abort(); if (timer) clearTimeout(timer); };
   }, [load, pollToken]);
   const generate = async () => {
     setGenerating(true); setError("");
     try {
       const response = await fetch(`/api/players/${ffeCode}/global-report/generate`, { method: "POST" });
       const body = await response.json() as Payload;
-      if (!response.ok && body.state !== "error") throw new Error(body.error ?? "Génération indisponible");
+      if (!response.ok && body.state !== "failed") throw new Error(body.error ?? "Génération indisponible");
       setPayload(body);
-      if (["queued", "pending", "building"].includes(body.state)) setPollToken((value) => value + 1);
+      if (["queued", "pending", "building", "retry_wait"].includes(body.state)) setPollToken((value) => value + 1);
     } catch (caught) {
       setError(caught instanceof Error ? caught.message : "Génération indisponible");
     } finally { setGenerating(false); }
   };
   if (!payload?.report) {
     const progress = payload?.metadata?.progress ?? 0;
+    const metadata = payload?.metadata;
+    const retryWaiting = metadata?.status === "retry_wait"
+      && !!metadata.nextRetryAt
+      && Date.parse(metadata.nextRetryAt) > clock;
+    const activeBuild = generating || ["queued", "building"].includes(metadata?.status ?? "") || retryWaiting;
+    const partial = ["partial_ready", "retry_wait", "failed"].includes(metadata?.status ?? "");
     return <Card className="global-report-launch">
-      <div><span className="eyebrow"><ShieldCheck/>Données sportives officielles FFE + FIDE</span><h2>Rapport global du joueur</h2>
-        <p>Classements mensuels, compétitions et statistiques de carrière, mis en cache pour tous les visiteurs.</p></div>
+      <div><span className="eyebrow"><ShieldCheck/>Données sportives officielles FFE + FIDE</span><h2>{partial ? "Rapport partiellement disponible" : "Rapport global du joueur"}</h2>
+        <p>{partial
+          ? "Les données déjà récupérées sont conservées. Certaines statistiques FIDE seront complétées lorsque la source sera disponible."
+          : "Classements mensuels, compétitions et statistiques de carrière, mis en cache pour tous les visiteurs."}</p></div>
       {payload?.metadata && <div className="global-build-progress" role="status"><div><span style={{ width: `${progress}%` }}/></div><p>{payload.metadata.currentStep ?? "Préparation"} · {progress} %</p></div>}
+      {metadata?.lastSuccessfulStage && <small>Dernière étape réussie : {metadata.lastSuccessfulStage}</small>}
+      {metadata?.updatedAt && <small>Dernière tentative : {new Date(metadata.updatedAt).toLocaleString("fr-FR")}</small>}
+      {metadata?.nextRetryAt && <small>Prochaine tentative autorisée : {new Date(metadata.nextRetryAt).toLocaleString("fr-FR")}</small>}
       {error && <p className="form-error">{error}</p>}
-      <button className="button primary" onClick={generate} disabled={generating}>
-        <RefreshCcw className={generating ? "spin" : ""}/>{generating ? "Construction en cours…" : payload?.metadata ? "Reprendre la construction" : "Construire le rapport global"}
+      <button className="button primary" onClick={generate} disabled={activeBuild}>
+        <RefreshCcw className={generating || ["queued", "building"].includes(metadata?.status ?? "") ? "spin" : ""}/>{retryWaiting ? "Nouvelle tentative programmée" : activeBuild ? "Construction en cours…" : partial ? "Réessayer les données manquantes" : payload?.metadata ? "Reprendre la construction" : "Construire le rapport global"}
       </button>
       <small>Traitement progressif, une requête FIDE à la fois. Les données FFE restent disponibles si la FIDE répond lentement.</small>
     </Card>;
   }
   const report = payload.report;
   return <section className="global-report">
+    {payload.metadata && payload.metadata.status !== "ready" && <Card className="coverage-notice">
+      <Check/><div role="status"><strong>Rapport partiellement disponible</strong>
+        <p>Les informations déjà récupérées restent consultables. {payload.metadata.nextRetryAt ? `Nouvelle tentative après ${new Date(payload.metadata.nextRetryAt).toLocaleString("fr-FR")}.` : ""}</p>
+        <small>Dernière étape réussie : {payload.metadata.lastSuccessfulStage ?? "données en cache"}.</small>
+      </div>
+      {!["queued", "building"].includes(payload.metadata.status)
+        && !(payload.metadata.status === "retry_wait" && payload.metadata.nextRetryAt && Date.parse(payload.metadata.nextRetryAt) > clock)
+        && <button className="button" onClick={generate} disabled={generating}>Réessayer les données manquantes</button>}
+    </Card>}
     <div className="global-report-title"><div><span className="eyebrow"><ShieldCheck/>Rapport global partagé</span><h2>Carrière FFE + FIDE</h2><p>Mis à jour le {new Date(report.generatedAt).toLocaleDateString("fr-FR")}</p></div>
       <a href={report.player.sourceUrl} target="_blank" rel="noreferrer" className="button">Profil FIDE<ExternalLink/></a></div>
     <div className="player-report-tabs" role="tablist" aria-label="Sections du rapport">

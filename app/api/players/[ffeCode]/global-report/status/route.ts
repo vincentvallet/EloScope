@@ -7,5 +7,11 @@ export async function GET(request: Request, context: { params: Promise<{ ffeCode
   if (!code) return apiError("Code FFE invalide", 400);
   if (!fideApiAllowed(request, `status:${code}`, 60)) return apiError("Trop de requêtes", 429);
   const result = await getGlobalReport(code);
-  return NextResponse.json({ state: result.report ? (result.stale ? "partial" : "ready") : result.metadata?.status ?? "missing", metadata: result.metadata });
+  const state = result.stale && result.metadata?.status === "ready"
+    ? "partial_ready"
+    : result.metadata?.status ?? (result.report ? (result.stale ? "partial_ready" : "ready") : "missing");
+  return NextResponse.json({
+    state,
+    metadata: result.metadata,
+  });
 }

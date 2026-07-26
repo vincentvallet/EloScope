@@ -4,13 +4,18 @@ Le rapport `/joueurs/{codeFFE}` assemble l’identité officielle FFE, les parti
 
 ## Cycle de vie
 
-1. résolution du code FFE et du lien FIDE publié ;
-2. lecture ou actualisation du profil FIDE ;
-3. agrégation des participations FFE ;
-4. validation et écriture des cinq années récentes par segment ;
-5. écriture atomique du rapport puis de sa métadonnée `ready`.
+1. identité FFE validée (5 %) et lien FIDE validé (15 %) ;
+2. profil FIDE (25 %) puis historique Elo (35 %) enregistrés séparément ;
+3. calculs (50 %), événements (65 %) et participations FFE (75 %) ;
+4. statistiques (85 %), validation du rapport (95 %) et publication (100 %).
 
-En production, la route de génération place la demande en file et délègue au worker Netlify. Un verrou atomique de cinq minutes, acquis avec une écriture conditionnelle dans Netlify Blobs, rend la génération idempotente et couvre les délais réseau maximaux du lot. Un rapport frais est renvoyé sans recalcul. En cas de panne, le dernier rapport valide reste disponible avec `partial`; sans cache, l’API expose une erreur générique et un `retryAfter`.
+Chaque étape réussie possède un checkpoint Blob. L’écriture passe par une clé temporaire validée avant le remplacement de la clé active ; l’ancienne valeur reste donc intacte si l’écriture échoue. La progression est monotone et une reprise commence au premier checkpoint absent.
+
+En production, la route de génération place une seule demande en file et transmet son `attemptId` à la Background Function. Le worker relit toujours l’état persistant dans le store `eloscope-fide`. Un verrou atomique de cinq minutes, acquis avec une écriture conditionnelle, rend la génération idempotente entre onglets et instances.
+
+La machine à états utilise `idle`, `queued`, `building`, `retry_wait`, `partial_ready`, `ready` et `failed`. Les trois premières pannes rapprochées appliquent un backoff borné ; le troisième échec conserve un état partiel sans nouvelle relance immédiate. Le watchdog ne traite que `queued`, `building` avec verrou expiré, ou `retry_wait` dont l’échéance est atteinte.
+
+Le navigateur effectue un seul `POST generate` par action explicite. Le suivi est exclusivement réalisé par `GET`, avec une seule requête en vol, un `AbortController` et un timeout nettoyé au démontage.
 
 ## API
 

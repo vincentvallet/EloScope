@@ -222,9 +222,40 @@ test("reprend le polling après la mise en file du worker", async ({ page }) => 
 });
 
 test("permet de reprendre après une panne FIDE", async ({ page }) => {
-  await page.route("**/api/players/A12345/global-report", async (route) => route.fulfill({ status: 202, contentType: "application/json", body: JSON.stringify({ state: "error", metadata: { status: "error", progress: 0, currentStep: "Source temporairement indisponible" } }) }));
+  await page.route("**/api/players/A12345/global-report", async (route) => route.fulfill({ status: 202, contentType: "application/json", body: JSON.stringify({ state: "partial_ready", metadata: { status: "partial_ready", progress: 35, currentStep: "Rapport partiellement disponible", lastSuccessfulStage: "ratings" } }) }));
   await page.goto("/joueurs/A12345");
-  await expect(page.getByRole("button", { name: "Reprendre la construction" })).toBeVisible();
+  await expect(page.getByRole("button", { name: "Réessayer les données manquantes" })).toBeVisible();
+  await expect(page.getByText(/35 %/)).toBeVisible();
+});
+
+test("ne transforme jamais le polling 35 % en nouveau POST ou en retour à zéro", async ({ page }) => {
+  let reads = 0;
+  let posts = 0;
+  const observedProgress: number[] = [];
+  await page.route("**/api/players/A12345/global-report", async (route) => {
+    reads += 1;
+    const body = reads === 1
+      ? { state: "missing" }
+      : reads === 2
+        ? { state: "building", metadata: { status: "building", progress: 35, currentStep: "Lecture des calculs FIDE récents", lastSuccessfulStage: "ratings" } }
+        : { state: "partial_ready", metadata: { status: "partial_ready", progress: 35, currentStep: "Rapport partiellement disponible", lastSuccessfulStage: "ratings" } };
+    if (body.metadata) observedProgress.push(body.metadata.progress);
+    await route.fulfill({ status: 202, contentType: "application/json", body: JSON.stringify(body) });
+  });
+  await page.route("**/api/players/A12345/global-report/generate", async (route) => {
+    posts += 1;
+    await route.fulfill({
+      status: 202,
+      contentType: "application/json",
+      body: JSON.stringify({ state: "queued", metadata: { status: "queued", progress: 0, currentStep: "Rapport placé dans la file" } }),
+    });
+  });
+  await page.goto("/joueurs/A12345");
+  await page.getByRole("button", { name: "Construire le rapport global" }).click();
+  await expect(page.getByText("Rapport partiellement disponible", { exact: true }).first()).toBeVisible();
+  expect(posts).toBe(1);
+  expect(reads).toBeGreaterThanOrEqual(3);
+  expect(observedProgress).toEqual([35, 35]);
 });
 
 test("garde la page joueur en noindex follow", async ({ page }) => {

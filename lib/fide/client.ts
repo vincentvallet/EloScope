@@ -2,6 +2,7 @@ import { FideCircuitBreaker } from "./rate-limit";
 import type { FideStorage } from "./storage/interface";
 import { fideStorage } from "./storage";
 import { readFideCache, writeFideCache } from "./cache";
+import { FideSourceError, classifyFideError } from "./errors";
 
 const USER_AGENT = "EloScope/1.0 (+mail@vincentvallet.com)";
 const allowedHosts = new Set(["ratings.fide.com"]);
@@ -32,7 +33,7 @@ export class FideClient {
 
   async html(urlValue: string, options: { cacheKey?: string; ttlMs?: number; signal?: AbortSignal; headers?: Record<string, string> } = {}) {
     const url = new URL(urlValue);
-    if (url.protocol !== "https:" || !allowedHosts.has(url.hostname)) throw new Error("Source FIDE non autorisée");
+    if (url.protocol !== "https:" || !allowedHosts.has(url.hostname)) throw new FideSourceError("NETWORK", "Source FIDE non autorisée", url.toString());
     const cacheKey = options.cacheKey ?? `fide/http/${encodeURIComponent(url.pathname + url.search)}.json`;
     const cached = await readFideCache<string>(this.storage, cacheKey);
     if (cached) return { body: cached.value, source: "cache" as const, fetchedAt: cached.fetchedAt };
@@ -45,7 +46,7 @@ export class FideClient {
     } catch (error) {
       const stale = await readFideCache<string>(this.storage, cacheKey, true);
       if (stale) return { body: stale.value, source: "stale-cache" as const, fetchedAt: stale.fetchedAt };
-      throw error;
+      throw classifyFideError(error);
     }
   }
 
@@ -68,10 +69,18 @@ export class FideClient {
           redirect: "follow",
           signal: controller.signal,
         });
-        if ([403, 429, 503].includes(response.status)) throw new Error(`FIDE HTTP ${response.status}`);
-        if (!response.ok) throw new Error(`FIDE HTTP ${response.status}`);
+        if (!response.ok) {
+          const code = response.status === 403 ? "HTTP_403"
+            : response.status === 429 ? "HTTP_429"
+              : response.status === 500 ? "HTTP_500"
+                : response.status === 503 ? "HTTP_503"
+                  : response.status === 404 ? "NOT_FOUND" : "NETWORK";
+          throw new FideSourceError(code, `FIDE HTTP ${response.status}`, url.toString(), response.status);
+        }
         const type = response.headers.get("content-type") ?? "";
-        if (!/text\/html|application\/xhtml\+xml/i.test(type)) throw new Error("Type de réponse FIDE inattendu");
+        if (!/text\/html|application\/xhtml\+xml/i.test(type)) {
+          throw new FideSourceError("UNEXPECTED_HTML", "Type de réponse FIDE inattendu", url.toString(), response.status);
+        }
         const declared = Number(response.headers.get("content-length"));
         const limit = this.options.maxBytes ?? 5_000_000;
         if (declared > limit) throw new Error("Réponse FIDE trop volumineuse");
@@ -81,9 +90,23 @@ export class FideClient {
         this.options.logger?.({ source: "fide", status: response.status, url: url.pathname, bytes: body.length, attempt });
         return body;
       } catch (error) {
+        const classified = controller.signal.aborted && !parentSignal?.aborted
+          ? new FideSourceError("TIMEOUT", `Délai FIDE dépassé après ${this.options.timeoutMs ?? 15_000} ms`, url.toString())
+          : classifyFideError(error);
         this.breaker.failure();
-        this.options.logger?.({ source: "fide", status: "error", url: url.pathname, attempt, message: error instanceof Error ? error.message : "unknown" });
-        if (parentSignal?.aborted || attempt === retries || /HTTP (403|429|503)/.test(String(error))) throw error;
+        this.options.logger?.({
+          source: "fide",
+          status: classified.status ?? "error",
+          errorCode: classified.code,
+          url: url.toString(),
+          attempt,
+          message: classified.message,
+        });
+        if (
+          parentSignal?.aborted
+          || attempt === retries
+          || ["HTTP_403", "HTTP_429", "HTTP_503"].includes(classified.code)
+        ) throw classified;
         await (this.options.wait ?? ((ms) => new Promise((resolve) => setTimeout(resolve, ms))))(500 * 2 ** attempt);
       } finally {
         clearTimeout(timer);

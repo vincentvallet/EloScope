@@ -8,7 +8,10 @@ export async function GET(request: Request, context: { params: Promise<{ ffeCode
   if (!fideApiAllowed(request, `report:${code}`)) return apiError("Trop de requêtes", 429);
   const result = await getGlobalReport(code);
   if (!result.report) return NextResponse.json({ state: result.metadata?.status ?? "missing", metadata: result.metadata }, { status: 202 });
-  return NextResponse.json({ state: result.stale ? "partial" : "ready", ...result }, {
+  const state = result.stale && result.metadata?.status === "ready"
+    ? "partial_ready"
+    : result.metadata?.status ?? (result.stale ? "partial_ready" : "ready");
+  return NextResponse.json({ state, ...result }, {
     headers: { "cache-control": "public, max-age=300, stale-while-revalidate=86400" },
   });
 }

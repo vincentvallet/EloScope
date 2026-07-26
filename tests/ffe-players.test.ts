@@ -55,6 +55,35 @@ describe("annuaire joueurs FFE", () => {
     expect(identityConfidence(profile, { name: "Autre Personne", ffeCode: "A12345" })).toBe("exact_ffe_code");
   });
 
+  it("rattache nom-prénom dans les deux ordres sans dépendre du club actuel", () => {
+    const profile: FfePlayerProfile = {
+      ffeCode: "W16194",
+      ffeInternalId: "300396",
+      fideId: "637610",
+      lastName: "VALLET",
+      firstName: "Vincent",
+      displayName: "Vincent VALLET",
+      normalizedName: "VINCENT VALLET",
+      currentClubName: "Club actuel",
+      standardRating: 1830,
+      fetchedAt: "2026-07-01T00:00:00.000Z",
+    };
+    expect(identityConfidence(profile, {
+      name: "VALLET Vincent",
+      club: "Ancien club",
+      rating: 1805,
+    })).toBe("strong_name_match");
+    expect(identityConfidence(profile, {
+      name: "Homonyme Vincent",
+      fideId: "637610",
+    })).toBe("exact_fide_id");
+    expect(identityConfidence(profile, {
+      name: "VALLET Vincent",
+      club: "Ancien club",
+      rating: 1400,
+    })).toBe("ambiguous");
+  });
+
   it("rattache les participations déjà indexées lorsqu'un profil est recherché plus tard", async () => {
     const storage = new MemoryPlayerStorage();
     const profile = parsePlayerDirectory(directoryFixture)[0];

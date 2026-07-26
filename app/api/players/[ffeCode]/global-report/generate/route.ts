@@ -20,12 +20,12 @@ export async function POST(request: Request, context: { params: Promise<{ ffeCod
     const response = await fetch(new URL("/.netlify/functions/fide-player-report-worker", request.url), {
       method: "POST",
       headers: { "content-type": "application/json", "x-eloscope-sync-secret": secret },
-      body: JSON.stringify({ ffeCode: code }),
+      body: JSON.stringify({ ffeCode: code, attemptId: queued.metadata?.attemptId }),
     });
     if (!response.ok) return apiError("Worker de génération indisponible", 503);
     return NextResponse.json(queued, { status: 202 });
   }
-  const result = await buildGlobalReport(code);
-  if (result.state === "error") return NextResponse.json({ state: "error", metadata: result.metadata }, { status: 503 });
+  const result = await buildGlobalReport(code, { attemptId: queued.metadata?.attemptId });
+  if (result.state === "failed") return NextResponse.json(result, { status: 503 });
   return NextResponse.json(result, { status: result.state === "pending" ? 202 : 200 });
 }
