@@ -24,7 +24,7 @@ export type PlayerBackfillOptions = {
   now?: () => Date;
 };
 
-const STATE_KEY = "metadata/player-backfill-status.json";
+export const PLAYER_BACKFILL_STATE_KEY = "metadata/player-backfill-status.json";
 const LOCK_KEY = "locks/player-backfill.json";
 
 export async function runPlayerParticipationBackfill(options: PlayerBackfillOptions) {
@@ -37,7 +37,7 @@ export async function runPlayerParticipationBackfill(options: PlayerBackfillOpti
   await options.storage.setJSON(LOCK_KEY, { owner, expiresAt: new Date(current.getTime() + 10 * 60_000).toISOString() });
   const verified = await options.storage.getJSON<{ owner: string }>(LOCK_KEY);
   if (verified?.owner !== owner) return { skipped: "locked" as const };
-  const initial = await options.storage.getJSON<PlayerBackfillState>(STATE_KEY) ?? {
+  const initial = await options.storage.getJSON<PlayerBackfillState>(PLAYER_BACKFILL_STATE_KEY) ?? {
     targetStart: "2000-01",
     targetEnd: current.toISOString().slice(0, 7),
     completedTournamentCount: 0,
@@ -72,11 +72,11 @@ export async function runPlayerParticipationBackfill(options: PlayerBackfillOpti
       state.cursor = ref;
       state.pendingTournamentCount = Math.max(0, options.tournamentRefs.length - startIndex - processed);
       state.updatedAt = now().toISOString();
-      await options.storage.setJSON(STATE_KEY, state);
+      await options.storage.setJSON(PLAYER_BACKFILL_STATE_KEY, state);
     }
     state.running = false;
-    if (state.pendingTournamentCount === 0) state.completedAt = now().toISOString();
-    await options.storage.setJSON(STATE_KEY, state);
+    if (state.pendingTournamentCount === 0 && state.failedTournamentCount === 0) state.completedAt = now().toISOString();
+    await options.storage.setJSON(PLAYER_BACKFILL_STATE_KEY, state);
     return { processed, state };
   } finally {
     const lock = await options.storage.getJSON<{ owner: string }>(LOCK_KEY);

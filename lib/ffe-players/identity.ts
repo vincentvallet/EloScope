@@ -11,6 +11,10 @@ export function normalizePlayerName(value: string) {
     .toLocaleUpperCase("fr");
 }
 
+export function playerNameIndexSegment(value: string) {
+  return normalizePlayerName(value).replace(/[^A-Z0-9]+/g, "-").replace(/^-|-$/g, "");
+}
+
 export function splitFfeDisplayName(value: string) {
   const cleaned = value.replace(/\s+/g, " ").trim();
   const parts = cleaned.split(" ");

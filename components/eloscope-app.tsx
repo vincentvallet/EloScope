@@ -6,7 +6,7 @@ import { usePathname } from "next/navigation";
 import type { EChartsOption } from "echarts";
 import {
   ArrowLeft, ArrowRight, BarChart3, Building2, CalendarDays, Check, ChevronDown,
-  CircleAlert, Clock3, Download, Gauge, HelpCircle, Import,
+  CircleAlert, Clock3, Download, Gauge, HelpCircle,
   Info, Menu, Printer, RefreshCcw, Search, Settings, Star, Target, Trophy,
   Users,
 } from "lucide-react";
@@ -294,19 +294,20 @@ export function EloScopeApp() {
     const term = search.toLocaleLowerCase("fr");
     return report.players.filter((player) => player.name.toLocaleLowerCase("fr").includes(term)).slice(0, 6);
   }, [report, search]);
+  const routeReportRef = pathname.match(/^\/tournoi\/(\d+)(?:\/|$)/)?.[1];
+  const reportContext = !!report && (
+    pathname.startsWith(`${BASE}/`)
+    || (!!routeReportRef && sharedReportRef(report) === routeReportRef)
+  );
   const navigation = [
     { href: "/tournois", label: "Recherche", icon: Search, active: pathname === "/" || pathname.startsWith("/tournois") },
     { href: "/joueurs", label: "Joueurs", icon: Users, active: pathname === "/joueurs" || /^\/joueurs\/[A-Z]\d{5}$/i.test(pathname) },
-    {
-      href: report ? `${reportBase(report)}/vue-ensemble` : "/importer",
-      label: "Lien FFE",
-      icon: Trophy,
-      active: pathname === "/importer" || pathname.endsWith("/vue-ensemble"),
-    },
     ...(report ? [
+      { href: `${reportBase(report)}/vue-ensemble`, label: "Vue d’ensemble", icon: Trophy, active: pathname.endsWith("/vue-ensemble") },
       { href: `${reportBase(report)}/classement`, label: "Classement", icon: BarChart3, active: pathname.endsWith("/classement") || pathname.startsWith("/tournoi/") && pathname.includes("/joueurs/") },
       { href: `${reportBase(report)}/clubs`, label: "Clubs", icon: Building2, active: pathname.endsWith("/clubs") },
       { href: `${reportBase(report)}/rondes`, label: "Rondes", icon: CalendarDays, active: pathname.endsWith("/rondes") },
+      ...(reportContext ? [{ href: `${reportBase(report)}/parametres`, label: "Paramètres", icon: Settings, active: pathname.endsWith("/parametres") }] : []),
     ] : []),
   ];
   const changeTournament = (key: string) => {
@@ -340,7 +341,6 @@ export function EloScopeApp() {
         <div className="sidebar-bottom">
           <a href="/a-propos-elo"><HelpCircle size={17}/>À propos des calculs Elo</a>
           <a href="/donnees-confidentialite"><Info size={17}/>Données et confidentialité</a>
-          <a href="/parametres"><Settings size={17}/>Paramètres</a>
         </div>
       </aside>
       {mobileOpen && <button className="sidebar-backdrop" aria-label="Fermer le menu" onClick={() => setMobileOpen(false)}/>}
@@ -357,8 +357,7 @@ export function EloScopeApp() {
             <select value={reportKey(report)} onChange={(event) => changeTournament(event.target.value)} aria-label="Changer de tournoi">
               {reports.map((item) => <option value={reportKey(item)} key={reportKey(item)}>{item.report.title}</option>)}
             </select>
-          </label> : <div className="top-context"><span>{report?.report.title ?? "Aucun tournoi importé"}</span><small>{report ? "Source FFE" : "Import requis"}</small></div>}
-          <a className="button primary" href="/importer"><Import size={17}/>{report ? "Changer de tournoi" : "Importer"}</a>
+          </label> : <div className="top-context"><span>{report?.report.title ?? "Aucun tournoi sélectionné"}</span><small>{report ? "Source FFE" : "Recherche de tournois"}</small></div>}
         </header>
         <main>
           <PageRouter pathname={pathname} report={report} reports={reports} ready={ready} setReport={setReport}/>
@@ -388,10 +387,9 @@ function PageRouter({
   if (/^\/joueurs\/[A-Z]\d{5}$/i.test(pathname)) return <PlayerProfilePage ffeCode={pathname.split("/").at(-1)!}/>;
   if (pathname === "/donnees-confidentialite") return <PrivacyPage/>;
   if (/^\/tournois\/\d+$/.test(pathname)) return <TournamentDetailPage ffeRef={pathname.split("/").at(-1)!} setReport={setReport}/>;
-  if (pathname === "/importer") return <ImportPage/>;
   if (pathname === "/rapports-recents") return <RecentPage reports={reports} setReport={setReport}/>;
   if (pathname === "/a-propos-elo") return <MethodPage/>;
-  const sharedMatch = pathname.match(/^\/tournoi\/(\d+)(?:\/(vue-ensemble|classement|clubs|rondes|joueurs)(?:\/([^/]+))?)?$/);
+  const sharedMatch = pathname.match(/^\/tournoi\/(\d+)(?:\/(vue-ensemble|classement|clubs|rondes|parametres|joueurs)(?:\/([^/]+))?)?$/);
   if (sharedMatch && (!report || sharedReportRef(report) !== sharedMatch[1] || !sharedMatch[2])) {
     return <SharedReportPreparation ffeRef={sharedMatch[1]} entryId={sharedMatch[2] === "joueurs" ? sharedMatch[3] : undefined} setReport={setReport}/>;
   }
@@ -400,53 +398,24 @@ function PageRouter({
   if (pathname.endsWith("/classement") || pathname.endsWith("/joueurs")) return <RankingPage report={report}/>;
   if (pathname.endsWith("/clubs")) return <ClubsPage report={report}/>;
   if (pathname.endsWith("/rondes")) return <RoundsPage report={report}/>;
+  if (pathname.endsWith("/parametres")) return <SettingsPage report={report}/>;
   if (pathname.startsWith("/tournoi/")) return <TournamentOverview report={report}/>;
   return <TournamentSearchPage/>;
 }
 
-function ImportPage() {
-  return <div className="narrow-page"><div className="page-heading"><span className="eyebrow">Source officielle</span><h1>Ouvrir un tournoi FFE</h1><p>Collez le lien de la fiche tournoi. EloScope vérifie le cache partagé et prépare automatiquement le rapport si nécessaire.</p></div><ImportPanel/></div>;
-}
-
-function ImportPanel({ compact = false }: { compact?: boolean }) {
-  const [url, setUrl] = useState("");
-  const [loading, setLoading] = useState(false);
-  const [error, setError] = useState("");
-  const valid = /^https:\/\/(www\.)?echecs\.asso\.fr\/FicheTournoi\.aspx\?[^#]*\bRef=\d+/i.test(url);
-  const analyze = async () => {
-    setError(""); setLoading(true);
-    try {
-      const ref = new URL(url).searchParams.get("Ref");
-      if (!ref || !/^\d+$/.test(ref)) throw new Error("Référence FFE invalide.");
-      window.location.assign(`/tournoi/${ref}`);
-    } catch (caught) {
-      setError(caught instanceof Error ? caught.message : "Ouverture impossible.");
-      setLoading(false);
-    }
-  };
-  return <Card className={compact ? "hero-import" : "import-card"}>
-    <div className="field-stack"><label htmlFor={compact ? "home-url" : "source-url"}>Lien de la fiche tournoi FFE</label><div className="input-with-icon"><Search/><input id={compact ? "home-url" : "source-url"} value={url} onChange={(event) => setUrl(event.target.value)} placeholder="https://echecs.asso.fr/FicheTournoi.aspx?Ref=IDENTIFIANT DU TOURNOI" /></div>
-      <p className="field-help"><Info/>EloScope récupère automatiquement <code>Action=Ls</code> pour les clubs et <code>Action=Ga</code> pour les résultats.</p>
-      {url && !valid && <p className="field-error"><CircleAlert/>Collez une URL FicheTournoi.aspx?Ref=… du domaine officiel echecs.asso.fr.</p>}
-      {error && <div className="notice warning"><CircleAlert/><p>{error}</p></div>}
-    </div>
-    <div className={compact ? "hero-import-action" : "card-actions"}><button disabled={!valid || loading} className="button primary" onClick={analyze}>{loading ? "Ouverture du rapport…" : "Voir le rapport"} <ArrowRight/></button></div>
-  </Card>;
-}
-
 function NoReport() {
-  return <div className="narrow-page"><EmptyState title="Aucun tournoi importé">Collez le lien d’une fiche tournoi FFE pour créer votre premier rapport.</EmptyState><div className="center-action"><a className="button primary" href="/importer"><Import/>Importer un tournoi FFE</a></div></div>;
+  return <TournamentSearchPage/>;
 }
 
 function TournamentHeader({ report, active }: { report: NormalizedTournament; active: string }) {
-  const tabs = [["vue-ensemble", "Vue d’ensemble"], ["classement", "Classement"], ["clubs", "Clubs"], ["rondes", "Rondes"]];
+  const tabs = [["vue-ensemble", "Vue d’ensemble"], ["classement", "Classement"], ["clubs", "Clubs"], ["rondes", "Rondes"], ["parametres", "Paramètres"]];
   const base = reportBase(report);
   return <>
     <div className="breadcrumbs"><a href="/tournois">Recherche</a><span>/</span><strong>{report.report.title}</strong></div>
     <div className="tournament-head">
       <div className="tournament-emblem"><Trophy/></div>
       <div><span className="status-pill success"><Check/>Source FFE</span><h1>{report.report.title}</h1><p><CalendarDays/>Données après la ronde {report.report.currentRound} sur {report.report.totalRounds}</p><small>Rapport généré le {new Date(report.report.importedAt).toLocaleString("fr-FR", { timeZone: "Europe/Paris" })}</small></div>
-      <div className="head-actions"><a className="icon-button" href={sharedReportRef(report) ? `/tournoi/${sharedReportRef(report)}` : "/importer"} title="Actualiser depuis la FFE"><RefreshCcw/></a><button className="button secondary" onClick={() => window.print()}><Printer/>PDF</button><button className="button primary" onClick={() => exportPlayers(report.players)}><Download/>Exporter</button></div>
+      <div className="head-actions"><a className="icon-button" href={sharedReportRef(report) ? `/tournoi/${sharedReportRef(report)}` : "/tournois"} title="Actualiser depuis la FFE"><RefreshCcw/></a><button className="button secondary" onClick={() => window.print()}><Printer/>PDF</button><button className="button primary" onClick={() => exportPlayers(report.players)}><Download/>Exporter</button></div>
     </div>
     <nav className="context-tabs" aria-label="Sections du tournoi">{tabs.map(([key, label]) => <a href={`${base}/${key}`} className={active === key ? "active" : ""} key={key}>{label}</a>)}</nav>
   </>;
@@ -647,11 +616,11 @@ function RecentPage({
       return <a className="report-card" href={`${BASE}/vue-ensemble`} onClick={() => setReport(storedReport)} key={reportKey(storedReport)}>
       <div className="report-badge"><Trophy/></div><span className="status-pill success"><Check/>FFE</span><h3>{storedReport.report.title}</h3><p>{storedReport.players.length} joueurs · {storedReport.report.totalRounds} rondes</p><small>Importé le {new Date(storedReport.report.importedAt).toLocaleString("fr-FR")}</small>
       </a>;
-    })}</div> : <EmptyState title="Aucun tournoi recherché">Importez une fiche tournoi FFE pour commencer.</EmptyState>}
+    })}</div> : <EmptyState title="Aucun tournoi recherché">Recherchez un tournoi ou collez son lien FFE pour commencer.</EmptyState>}
     <SectionTitle>Joueurs consultés</SectionTitle>
     {history.players.length ? <div className="directory-grid">{history.players.map((item) => {
       const storedReport = reports.find((candidate) => candidate.report.title === item.tournament && candidate.players.some((player) => player.id === item.id));
-      return <a href={storedReport ? `${BASE}/joueurs/${item.id}` : "/importer"} onClick={() => { if (storedReport) setReport(storedReport); }} key={`${item.tournament}-${item.id}`}>
+       return <a href={storedReport ? `${BASE}/joueurs/${item.id}` : "/tournois"} onClick={() => { if (storedReport) setReport(storedReport); }} key={`${item.tournament}-${item.id}`}>
       <Avatar name={item.name}/><span><strong>{item.name}</strong><small>{item.club ?? item.tournament}</small></span><ArrowRight/>
       </a>;
     })}</div> : <EmptyState title="Aucun joueur consulté">Les joueurs ouverts depuis la recherche ou le classement apparaîtront ici.</EmptyState>}
@@ -660,4 +629,15 @@ function RecentPage({
 
 function MethodPage() {
   return <div className="narrow-page"><div className="page-heading"><span className="eyebrow">Méthode transparente</span><h1>À propos des calculs Elo</h1><p>EloScope produit une estimation reproductible à partir des résultats importés.</p></div><Card className="prose-card"><h2>Source des données</h2><p>Les clubs viennent de la liste officielle des participants FFE. Les classements, scores et rondes viennent de la grille américaine du même tournoi. Lorsqu’elle n’est pas publiée, la performance est estimée à partir des résultats et des Elo adverses.</p><h2>Variation par partie</h2><p><code>coefficient K × (score réalisé − score attendu)</code></p><p>Les parties non jouées, adversaires sans Elo, exempts et forfaits sont exclus du calcul.</p><div className="notice warning"><CircleAlert/><p>Vérifiez toujours votre coefficient K et le classement officiellement publié.</p></div></Card></div>;
+}
+
+function SettingsPage({ report }: { report: NormalizedTournament }) {
+  return <div className="narrow-page">
+    <TournamentHeader report={report} active="parametres"/>
+    <Card className="prose-card">
+      <h2>Paramètres du rapport</h2>
+      <p>Les estimations Elo utilisent les règles FIDE affichées dans chaque rapport individuel. Le classement initial et le coefficient K se règlent directement sur la fiche du joueur afin de conserver des scénarios indépendants.</p>
+      <div className="notice"><Info/><p>Le rapport partagé reste inchangé : vos ajustements de calcul sont appliqués uniquement dans votre navigateur.</p></div>
+    </Card>
+  </div>;
 }

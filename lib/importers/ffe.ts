@@ -8,18 +8,22 @@ import type {
   TournamentSourceAdapter,
 } from "./types";
 import { estimatePerformance } from "@/lib/rating/engine";
+import { normalizeFfeTournamentUrl } from "@/lib/ffe-url";
 
 const ALLOWED_HOSTS = new Set(["echecs.asso.fr", "www.echecs.asso.fr"]);
 // Large Swiss-system grids can legitimately exceed 2 MB (Cappelle 2026 is
 // about 2.64 MB). Keep a strict cap while allowing these major events.
 const MAX_BYTES = 4_000_000;
+const FFE_PAGE_TIMEOUT_MS = 15_000;
 
 export function validateFfeUrl(input: string) {
   const url = new URL(input);
-  if (url.protocol !== "https:" || !ALLOWED_HOSTS.has(url.hostname.toLowerCase())) {
-    throw new Error("Seules les URL HTTPS du domaine echecs.asso.fr sont autorisées.");
+  if (!["http:", "https:"].includes(url.protocol) || !ALLOWED_HOSTS.has(url.hostname.toLowerCase())) {
+    throw new Error("Seules les URL du domaine echecs.asso.fr sont autorisées.");
   }
   if (url.username || url.password || url.port) throw new Error("URL non autorisée.");
+  url.protocol = "https:";
+  url.hostname = "echecs.asso.fr";
   return url;
 }
 
@@ -27,7 +31,9 @@ export function tournamentSourceUrls(input: string) {
   const url = validateFfeUrl(input);
   let tournamentId = "";
   if (/\/FicheTournoi\.aspx$/i.test(url.pathname)) {
-    tournamentId = url.searchParams.get("Ref") ?? "";
+    const normalized = normalizeFfeTournamentUrl(url.toString());
+    tournamentId = normalized.ref;
+    url.href = normalized.url;
   } else if (/\/Resultats\.aspx$/i.test(url.pathname)) {
     tournamentId = url.searchParams.get("URL")?.match(/Tournois\/Id\/(\d+)\//i)?.[1] ?? "";
   }
@@ -248,23 +254,20 @@ export class FfeResultsAdapter implements TournamentSourceAdapter {
 
   async fetchSource(input: string): Promise<RawTournamentSource> {
     const urls = tournamentSourceUrls(input);
-    const controller = new AbortController();
-    const timeout = setTimeout(() => controller.abort(), 10_000);
-    try {
-      const [content, participantsContent] = await Promise.all([
-        fetchFfePage(urls.grid, controller.signal),
-        fetchFfePage(urls.participants, controller.signal),
-      ]);
-      return {
-        kind: "html",
-        content,
-        participantsContent,
-        sourceUrl: urls.fiche.toString(),
-        fetchedAt: new Date().toISOString(),
-      };
-    } finally {
-      clearTimeout(timeout);
-    }
+    const fetchWithTimeout = async (url: URL) => {
+      const controller = new AbortController();
+      const timeout = setTimeout(() => controller.abort(), FFE_PAGE_TIMEOUT_MS);
+      try { return await fetchFfePage(url, controller.signal); } finally { clearTimeout(timeout); }
+    };
+    const content = await fetchWithTimeout(urls.grid);
+    const participantsContent = await fetchWithTimeout(urls.participants);
+    return {
+      kind: "html",
+      content,
+      participantsContent,
+      sourceUrl: urls.fiche.toString(),
+      fetchedAt: new Date().toISOString(),
+    };
   }
 
   async parseSource(source: RawTournamentSource) {

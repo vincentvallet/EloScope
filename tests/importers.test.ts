@@ -7,6 +7,7 @@ import {
   tournamentSourceUrls,
   validateFfeUrl,
 } from "@/lib/importers/ffe";
+import { FFE_TOURNAMENT_URL_ERROR, normalizeFfeTournamentUrl } from "@/lib/ffe-url";
 
 const gridFixture = `
 <table><tbody>
@@ -58,6 +59,29 @@ describe("import FFE", () => {
     expect(urls.participants.searchParams.get("Action")).toBe("Ls");
     expect(urls.grid.searchParams.get("Action")).toBe("Ga");
     expect(urls.grid.searchParams.get("URL")).toBe("Tournois/Id/70244/70244");
+  });
+
+  it("normalise les variantes légitimes des fiches tournoi FFE", () => {
+    expect(normalizeFfeTournamentUrl("https://echecs.asso.fr/FicheTournoi.aspx?Ref=67414")).toEqual({
+      ref: "67414",
+      url: "https://echecs.asso.fr/FicheTournoi.aspx?Ref=67414",
+    });
+    expect(normalizeFfeTournamentUrl("https://www.echecs.asso.fr/FicheTournoi.aspx?foo=1&Ref=67414").url)
+      .toBe("https://echecs.asso.fr/FicheTournoi.aspx?Ref=67414");
+    expect(normalizeFfeTournamentUrl("http://echecs.asso.fr/FicheTournoi.aspx?Ref=67414").url)
+      .toBe("https://echecs.asso.fr/FicheTournoi.aspx?Ref=67414");
+  });
+
+  it.each([
+    "https://example.com/FicheTournoi.aspx?Ref=67414",
+    "https://echecs.asso.fr/FicheTournoi.aspx?Ref=abc",
+    "https://echecs.asso.fr/FicheTournoi.aspx?Ref=",
+    "https://echecs.asso.fr/Resultats.aspx?Ref=67414",
+    "javascript:alert(1)",
+    "http://127.0.0.1/FicheTournoi.aspx?Ref=67414",
+    "https://echecs.asso.fr.evil.test/FicheTournoi.aspx?Ref=67414",
+  ])("rejette une URL qui ne peut pas identifier sûrement une fiche FFE : %s", (url) => {
+    expect(() => normalizeFfeTournamentUrl(url)).toThrow(FFE_TOURNAMENT_URL_ERROR);
   });
 
   it("parse la structure FFE, les accents, fédérations, demi-points et rondes", async () => {

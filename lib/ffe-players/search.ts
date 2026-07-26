@@ -1,6 +1,6 @@
 import { FfePlayersClient } from "./client";
-import { normalizePlayerName } from "./identity";
-import type { FfePlayerProfile, PlayerStorage } from "./types";
+import { identityConfidence, normalizePlayerName, playerNameIndexSegment } from "./identity";
+import type { FfePlayerProfile, PlayerStorage, PlayerTournamentParticipation } from "./types";
 
 const PROFILE_TTL = 24 * 60 * 60_000;
 
@@ -19,6 +19,25 @@ export async function savePlayerProfiles(storage: PlayerStorage, profiles: FfePl
     const tokens = new Set(normalizePlayerName(`${profile.lastName} ${profile.firstName ?? ""}`).split(" ").filter((token) => token.length >= 3));
     for (const token of tokens) {
       await storage.setJSON(`indexes/player-prefix/${token.slice(0, 3)}/${profile.ffeCode}.json`, { ffeCode: profile.ffeCode });
+    }
+    const participationKeys = await storage.list(`participations/by-name/${playerNameIndexSegment(profile.displayName)}/`);
+    for (const key of participationKeys) {
+      const participation = await storage.getJSON<PlayerTournamentParticipation>(key);
+      if (!participation) continue;
+      const confidence = identityConfidence(profile, {
+        name: participation.playerNameAtTournament,
+        club: participation.clubAtTournament,
+        rating: participation.playerRatingAtTournament,
+      });
+      if (confidence === "ambiguous") continue;
+      await storage.setJSON(`players/by-code/${profile.ffeCode}/participations/${participation.tournamentRef}.json`, {
+        ...participation,
+        playerKey: profile.ffeCode,
+        ffeCode: profile.ffeCode,
+        ffeInternalId: profile.ffeInternalId,
+        fideId: profile.fideId,
+        identityConfidence: confidence,
+      });
     }
   }
 }

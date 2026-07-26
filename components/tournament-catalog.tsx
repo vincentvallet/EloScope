@@ -8,6 +8,7 @@ import {
 import type { NormalizedTournament } from "@/lib/importers/types";
 import type { FfeTournamentCatalogItem } from "@/lib/ffe-catalog/types";
 import { Card, EmptyState } from "./ui";
+import { FfeTournamentLinkCard } from "./ffe-tournament-link";
 
 type SearchPayload = {
   items: FfeTournamentCatalogItem[];
@@ -161,6 +162,7 @@ export function TournamentSearchPage() {
         <label>Résultats<select aria-label="Disponibilité des résultats" value={filters.get("hasResults") ?? ""} onChange={(event) => update("hasResults", event.target.value)}><option value="">Tous</option><option value="true">Disponibles</option><option value="false">Pas encore disponibles</option></select></label>
       </div>}
     </Card>
+    <FfeTournamentLinkCard/>
     <div className="catalog-toolbar">
       <div><strong>{payload?.pagination.total ?? 0} tournoi{payload?.pagination.total === 1 ? "" : "s"}</strong>{refreshedAt && <small>Catalogue FFE mis à jour le {refreshedAt}</small>}</div>
       <button className="button secondary" onClick={() => setFilters(new URLSearchParams(filters))}><RefreshCcw/>Actualiser la recherche</button>

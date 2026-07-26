@@ -4,6 +4,7 @@ import { FfePlayersClient } from "@/lib/ffe-players/client";
 import { savePlayerProfiles, searchPlayers } from "@/lib/ffe-players/search";
 import { playerStorage } from "@/lib/ffe-players/storage";
 import type { FfePlayerProfile, PlayerTournamentParticipation } from "@/lib/ffe-players/types";
+import { PLAYER_BACKFILL_STATE_KEY, type PlayerBackfillState } from "@/lib/ffe-players/backfill";
 
 const querySchema = z.object({
   page: z.coerce.number().int().min(1).default(1),
@@ -33,7 +34,10 @@ export async function GET(request: Request, context: { params: Promise<{ ffeCode
       await savePlayerProfiles(storage, [profile]);
     } catch {}
   }
-  const keys = await storage.list(`players/by-code/${ffeCode}/participations/`);
+  const [keys, backfill] = await Promise.all([
+    storage.list(`players/by-code/${ffeCode}/participations/`),
+    storage.getJSON<PlayerBackfillState>(PLAYER_BACKFILL_STATE_KEY),
+  ]);
   let participations = (await Promise.all(keys.map((key) => storage.getJSON<PlayerTournamentParticipation>(key))))
     .filter(Boolean) as PlayerTournamentParticipation[];
   const filters = parsed.data;
@@ -49,6 +53,14 @@ export async function GET(request: Request, context: { params: Promise<{ ffeCode
     profile,
     participations: items,
     pagination: { page: filters.page, pageSize: filters.pageSize, total, pageCount: Math.max(1, Math.ceil(total / filters.pageSize)) },
-    coverage: { complete: false },
+    coverage: {
+      from: backfill?.targetStart,
+      to: backfill?.targetEnd,
+      complete: !!backfill?.completedAt && backfill.failedTournamentCount === 0,
+      indexedTournaments: backfill?.completedTournamentCount ?? 0,
+      pendingTournaments: backfill?.pendingTournamentCount,
+      failedTournaments: backfill?.failedTournamentCount ?? 0,
+      running: backfill?.running ?? false,
+    },
   });
 }

@@ -3,8 +3,8 @@ import { parsePlayerDirectory } from "@/lib/ffe-players/directory-parser";
 import { playerDirectoryForm } from "@/lib/ffe-players/aspnet-form";
 import { identityConfidence, normalizePlayerName } from "@/lib/ffe-players/identity";
 import { MemoryPlayerStorage } from "@/lib/ffe-players/storage";
-import { searchPlayers } from "@/lib/ffe-players/search";
-import type { FfePlayerProfile } from "@/lib/ffe-players/types";
+import { savePlayerProfiles, searchPlayers } from "@/lib/ffe-players/search";
+import type { FfePlayerProfile, PlayerTournamentParticipation } from "@/lib/ffe-players/types";
 
 const directoryFixture = `
 <table>
@@ -53,6 +53,30 @@ describe("annuaire joueurs FFE", () => {
     expect(identityConfidence(profile, { name: "Élodie-Anne Dupont", club: "Échiquier des Lilas" })).toBe("strong_name_match");
     expect(identityConfidence(profile, { name: "Élodie-Anne Dupont", club: "Autre Club", rating: 1200 })).toBe("ambiguous");
     expect(identityConfidence(profile, { name: "Autre Personne", ffeCode: "A12345" })).toBe("exact_ffe_code");
+  });
+
+  it("rattache les participations déjà indexées lorsqu'un profil est recherché plus tard", async () => {
+    const storage = new MemoryPlayerStorage();
+    const profile = parsePlayerDirectory(directoryFixture)[0];
+    const participation = {
+      id: "67414:1",
+      playerKey: "name:ELODIE-ANNE DUPONT",
+      playerNameAtTournament: "Élodie-Anne DUPONT",
+      normalizedPlayerName: "ELODIE-ANNE DUPONT",
+      tournamentRef: "67414",
+      tournamentTitle: "Open test",
+      clubAtTournament: "Échiquier des Lilas",
+      hasOfficialResults: true,
+      canOpenReport: true,
+      identityConfidence: "ambiguous",
+      sourceUrl: "https://echecs.asso.fr/FicheTournoi.aspx?Ref=67414",
+      indexedAt: "2026-01-01T00:00:00.000Z",
+    } satisfies PlayerTournamentParticipation;
+    await storage.setJSON("participations/by-name/ELODIE-ANNE-DUPONT/67414-1.json", participation);
+    await savePlayerProfiles(storage, [profile]);
+    expect(await storage.getJSON<PlayerTournamentParticipation>(
+      "players/by-code/A12345/participations/67414.json",
+    )).toMatchObject({ ffeCode: "A12345", identityConfidence: "strong_name_match" });
   });
 
   it("reste indexé avec 30 000 tournois et 300 000 participations simulées", async () => {

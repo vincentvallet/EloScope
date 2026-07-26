@@ -1,5 +1,6 @@
 import type { NormalizedTournament } from "@/lib/importers/types";
-import { identityConfidence, normalizePlayerName } from "./identity";
+import type { FfeTournamentCatalogItem } from "@/lib/ffe-catalog/types";
+import { identityConfidence, normalizePlayerName, playerNameIndexSegment } from "./identity";
 import { profilesForName } from "./search";
 import type { PlayerStorage, PlayerTournamentParticipation } from "./types";
 
@@ -7,6 +8,7 @@ export async function indexTournamentParticipations(
   storage: PlayerStorage,
   ffeRef: string,
   report: NormalizedTournament,
+  tournament?: FfeTournamentCatalogItem,
 ) {
   const indexedAt = new Date().toISOString();
   const items: PlayerTournamentParticipation[] = [];
@@ -29,6 +31,14 @@ export async function indexTournamentParticipations(
       normalizedPlayerName: normalizePlayerName(player.name),
       tournamentRef: ffeRef,
       tournamentTitle: report.report.title,
+      tournamentStartDate: tournament?.startDate,
+      tournamentEndDate: tournament?.endDate,
+      year: tournament?.year,
+      city: tournament?.city,
+      departmentCode: tournament?.departmentCode,
+      departmentName: tournament?.departmentName,
+      regionCode: tournament?.regionCode,
+      regionName: tournament?.regionName,
       ratingType: report.report.ratingType?.toLowerCase() as PlayerTournamentParticipation["ratingType"] ?? "unknown",
       playerRatingAtTournament: player.rating,
       clubAtTournament: player.club,
@@ -46,6 +56,10 @@ export async function indexTournamentParticipations(
       indexedAt,
     };
     items.push(participation);
+    await storage.setJSON(
+      `participations/by-name/${playerNameIndexSegment(player.name)}/${ffeRef}-${player.id}.json`,
+      participation,
+    );
     if (unique) {
       await storage.setJSON(`players/by-code/${unique.profile.ffeCode}/participations/${ffeRef}.json`, participation);
     }

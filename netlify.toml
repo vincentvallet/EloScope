@@ -25,3 +25,9 @@
 
 [functions."ffe-history-backfill-worker"]
   background = true
+
+[functions."ffe-player-participations"]
+  schedule = "3,13,23,33,43,53 * * * *"
+
+[functions."ffe-player-participations-worker"]
+  background = true

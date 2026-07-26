@@ -33,73 +33,90 @@ const importedTournament = {
   warnings: [],
 };
 
+const emptyCatalog = {
+  items: [],
+  pagination: { page: 1, pageSize: 20, total: 0, pageCount: 0 },
+  facets: { regions: [], departments: [], years: [] },
+  catalog: { catalogCount: 0, isRefreshing: false },
+};
+
 test.beforeEach(async ({ page }) => {
-  await page.route("**/api/import", async (route) => route.fulfill({
-    contentType: "application/json",
-    body: JSON.stringify({ ok: true, data: importedTournament, fetchedAt: "2026-07-25T00:00:00.000Z" }),
+  await page.route("**/api/tournaments/search**", (route) => route.fulfill({
+    contentType: "application/json", body: JSON.stringify(emptyCatalog),
   }));
-  await page.route("**/api/tournaments/70244/report**", async (route) => route.fulfill({
+  await page.route("**/api/tournaments/70244/report**", (route) => route.fulfill({
     contentType: "application/json",
     body: JSON.stringify({ state: "ready", data: importedTournament, stale: false, metadata: { status: "ready", progress: 100 } }),
   }));
 });
 
-test("ouvre la recherche par défaut et adapte le menu au rapport actif", async ({ page }) => {
-  await page.goto("/");
+test("simplifie la navigation et réserve Paramètres aux routes de rapport", async ({ page }) => {
+  await page.goto("/tournois");
   await expect(page.getByRole("heading", { name: "Trouver un tournoi" })).toBeVisible();
   const navigation = page.getByRole("navigation", { name: "Navigation principale" });
-  await expect(navigation.getByRole("link", { name: "Accueil" })).toHaveCount(0);
   await expect(navigation.getByRole("link", { name: "Recherche" })).toHaveClass(/active/);
-  await expect(navigation.getByRole("link", { name: "Lien FFE" })).toBeVisible();
-  await expect(navigation.getByRole("link", { name: "Classement" })).toHaveCount(0);
+  await expect(navigation.getByRole("link", { name: "Lien FFE" })).toHaveCount(0);
+  await expect(navigation.getByRole("link", { name: "Paramètres" })).toHaveCount(0);
+  await expect(page.getByRole("link", { name: /Importer un tournoi/i })).toHaveCount(0);
+  await expect(page.getByRole("button", { name: /Importer un tournoi/i })).toHaveCount(0);
 
-  await page.evaluate((stored) => {
-    sessionStorage.setItem("eloscope:session-reports", JSON.stringify([stored]));
-    sessionStorage.setItem("eloscope:active-report", "ffe:70244");
-  }, importedTournament);
   await page.goto("/tournoi/70244/vue-ensemble");
-  await expect(navigation.getByRole("link", { name: "Classement" })).toBeVisible({ timeout: 15_000 });
-  await expect(navigation.getByRole("link", { name: "Clubs" })).toBeVisible();
-  await expect(navigation.getByRole("link", { name: "Rondes" })).toBeVisible();
+  await expect(page.getByRole("heading", { name: importedTournament.report.title })).toBeVisible();
+  await expect(navigation.getByRole("link", { name: "Vue d’ensemble" })).toHaveClass(/active/);
+  await expect(navigation.getByRole("link", { name: "Paramètres" })).toBeVisible();
+  await page.reload();
+  await expect(navigation.getByRole("link", { name: "Paramètres" })).toBeVisible();
 
-  await page.goto("/tournoi/70244/clubs");
-  await expect(navigation.getByRole("link", { name: "Clubs" })).toHaveClass(/active/);
-  await expect(navigation.getByRole("link", { name: "Rondes" })).not.toHaveClass(/active/);
-  await page.goto("/tournoi/70244/rondes");
-  await expect(navigation.getByRole("link", { name: "Rondes" })).toHaveClass(/active/);
-  await expect(navigation.getByRole("link", { name: "Clubs" })).not.toHaveClass(/active/);
+  await page.goto("/tournoi/70244/parametres");
+  await expect(navigation.getByRole("link", { name: "Paramètres" })).toHaveClass(/active/);
+  await expect(navigation.locator("a.active")).toHaveCount(1);
+  await page.goto("/joueurs");
+  await expect(navigation.getByRole("link", { name: "Paramètres" })).toHaveCount(0);
 });
 
-test("ouvre une fiche tournoi FFE sans étape technique", async ({ page }) => {
+test("valide le lien sur Recherche et ouvre le cache sans second clic", async ({ page }) => {
+  await page.goto("/tournois");
+  await expect(page.getByRole("heading", { name: "Lien du tournoi FFE" })).toBeVisible();
+  const input = page.getByRole("textbox", { name: "Lien du tournoi FFE" });
+  await input.fill("https://example.com/FicheTournoi.aspx?Ref=70244");
+  await page.getByRole("button", { name: "Voir le rapport" }).click();
+  await expect(page.getByRole("alert")).toHaveText("Ce lien ne correspond pas à une fiche de tournoi FFE valide.");
+
+  await input.fill("http://www.echecs.asso.fr/FicheTournoi.aspx?extra=1&Ref=70244");
+  await input.press("Enter");
+  await expect(page).toHaveURL(/\/tournoi\/70244\/vue-ensemble$/);
+});
+
+test("affiche la préparation puis redirige automatiquement quand le rapport est absent", async ({ page }) => {
+  let reportReady = false;
   await page.unroute("**/api/tournaments/70244/report**");
-  await page.route("**/api/tournaments/70244/report**", async (route) => route.fulfill({
-    status: 202, contentType: "application/json", body: JSON.stringify({ state: "missing" }),
+  await page.route("**/api/tournaments/70244/report**", (route) => route.fulfill({
+    status: reportReady ? 200 : 202,
+    contentType: "application/json",
+    body: JSON.stringify(reportReady
+      ? { state: "ready", data: importedTournament, metadata: { status: "ready", progress: 100 } }
+      : { state: "missing" }),
   }));
-  await page.route("**/api/tournaments/70244/analyze**", async (route) => route.fulfill({
-    status: 202, contentType: "application/json", body: JSON.stringify({ state: "pending", metadata: { status: "fetching", progress: 15 } }),
-  }));
-  await page.goto("/importer");
-  await page.getByLabel("Lien de la fiche tournoi FFE").fill(ffeUrl);
-  await expect(page.getByText("Analyser le tournoi")).toHaveCount(0);
+  await page.route("**/api/tournaments/70244/analyze**", (route) => {
+    reportReady = true;
+    return route.fulfill({
+      status: 202, contentType: "application/json",
+      body: JSON.stringify({ state: "pending", metadata: { status: "fetching", progress: 15 } }),
+    });
+  });
+  await page.goto("/tournois");
+  await page.getByRole("textbox", { name: "Lien du tournoi FFE" }).fill(ffeUrl);
   await page.getByRole("button", { name: "Voir le rapport" }).click();
   await expect(page.getByRole("heading", { name: "Préparation de votre rapport" })).toBeVisible();
-  await page.evaluate((stored) => {
-    sessionStorage.setItem("eloscope:session-reports", JSON.stringify([stored]));
-    sessionStorage.setItem("eloscope:active-report", "ffe:70244");
-  }, importedTournament);
-  await page.goto("/tournoi/70244/vue-ensemble");
-  await expect(page.getByRole("main").getByText("Source FFE", { exact: true })).toBeVisible({ timeout: 15_000 });
-  await expect(page.getByRole("heading", { name: "12ème open de parties rapides de l'Echiquier Montl", exact: true })).toBeVisible();
+  await expect(page).toHaveURL(/\/tournoi\/70244\/vue-ensemble$/, { timeout: 15_000 });
 });
 
-test("recalcule le rapport joueur et affiche les clubs", async ({ page }) => {
-  await page.goto("/importer");
-  await page.getByLabel("Lien de la fiche tournoi FFE").fill(ffeUrl);
-  await page.getByRole("button", { name: "Voir le rapport" }).click();
-  await page.goto("/tournoi/70244/classement");
-  await page.getByRole("row").nth(1).click();
-  await page.getByRole("button", { name: "40" }).click();
-  await expect(page.getByText("Variation Elo estimée")).toBeVisible();
-  await page.goto("/tournoi/70244/clubs");
-  await expect(page.getByText("Clubs représentés")).toBeVisible();
+test("conserve la navigation mobile sans entrée obsolète", async ({ page, isMobile }) => {
+  test.skip(!isMobile, "Navigation mobile uniquement");
+  await page.goto("/tournois");
+  const mobile = page.getByRole("navigation", { name: "Navigation mobile" });
+  await expect(mobile.getByRole("link", { name: "Recherche" })).toBeVisible();
+  await expect(mobile.getByRole("link", { name: "Lien FFE" })).toHaveCount(0);
+  await page.getByRole("button", { name: "Ouvrir le menu" }).click();
+  await expect(page.getByRole("navigation", { name: "Navigation principale" }).getByRole("link", { name: "Paramètres" })).toHaveCount(0);
 });

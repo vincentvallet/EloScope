@@ -32,7 +32,9 @@ export function SharedReportPreparation({
     const finish = (data: NormalizedTournament, stale = false) => {
       setReport(data);
       if (stale) void fetch(`/api/tournaments/${ffeRef}/analyze?refresh=true`, { method: "POST" });
-      window.location.assign(entryId ? `/tournoi/${ffeRef}/joueurs/${entryId}` : `/tournoi/${ffeRef}/vue-ensemble`);
+      const destination = entryId ? `/tournoi/${ffeRef}/joueurs/${entryId}` : `/tournoi/${ffeRef}/vue-ensemble`;
+      window.history.replaceState(window.history.state, "", destination);
+      window.dispatchEvent(new PopStateEvent("popstate", { state: window.history.state }));
     };
     const poll = async () => {
       try {

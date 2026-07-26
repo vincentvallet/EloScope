@@ -53,7 +53,15 @@ type ProfilePayload = {
   profile: FfePlayerProfile;
   participations: PlayerTournamentParticipation[];
   pagination: { page: number; pageCount: number; total: number };
-  coverage: { complete: boolean };
+  coverage: {
+    complete: boolean;
+    from?: string;
+    to?: string;
+    indexedTournaments?: number;
+    pendingTournaments?: number;
+    failedTournaments?: number;
+    running?: boolean;
+  };
   error?: string;
 };
 
@@ -85,7 +93,9 @@ export function PlayerProfilePage({ ffeCode }: { ffeCode: string }) {
     <div className="player-rating-grid">
       <Card><small>Elo standard</small><strong>{profile.standardRating ?? "NC"}</strong></Card><Card><small>Rapide</small><strong>{profile.rapidRating ?? "NC"}</strong></Card><Card><small>Blitz</small><strong>{profile.blitzRating ?? "NC"}</strong></Card><Card><small>Catégorie</small><strong>{profile.category ?? "—"}</strong></Card>
     </div>
-    <div className="coverage-notice"><CircleAlert/><p>L’index des participations est progressif. La liste peut être incomplète pendant le backfill historique.</p></div>
+    <div className="coverage-notice"><CircleAlert/><p>{payload.coverage.complete
+      ? `Couverture automatique terminée${payload.coverage.from && payload.coverage.to ? ` pour la période ${payload.coverage.from} à ${payload.coverage.to}` : ""}.`
+      : `L’index des participations est progressif${payload.coverage.from && payload.coverage.to ? ` pour la période ${payload.coverage.from} à ${payload.coverage.to}` : ""}${payload.coverage.indexedTournaments ? ` : ${payload.coverage.indexedTournaments} tournoi(s) traité(s)` : ""}. La liste peut être incomplète pendant le traitement historique.`}</p></div>
     <div className="player-participation-toolbar"><h2>Tournois indexés ({payload.pagination.total})</h2><label>Cadence<select value={ratingType} onChange={(event) => setRatingType(event.target.value)}><option value="">Toutes</option><option value="standard">Lente</option><option value="rapid">Rapide</option><option value="blitz">Blitz</option></select></label><label className="checkbox"><input type="checkbox" checked={includeUnplayed} onChange={(event) => setIncludeUnplayed(event.target.checked)}/>Inclure les inscriptions sans partie jouée</label></div>
     {payload.participations.length === 0 ? <EmptyState title="Aucun tournoi indexé pour le moment">Le profil est reconnu, mais la couverture des participations n’a pas encore atteint ses tournois.</EmptyState> :
       <div className="participation-list">{payload.participations.map((item) => <Card className="participation-card" key={item.id}><div><span className="status-pill">{item.ratingType ?? "Cadence inconnue"}</span><h3>{item.tournamentTitle}</h3><p><CalendarDays/>{item.year ?? "Date non publiée"} · {item.playedRounds ?? 0} partie(s) jouée(s) · score {item.score ?? "—"}</p><small>Classement final : {item.finalRank ?? "—"} · Elo au tournoi : {item.playerRatingAtTournament ?? "NC"}</small></div><a className="button primary" href={`/tournoi/${item.tournamentRef}${item.reportEntryId ? `/joueurs/${item.reportEntryId}` : ""}`}>Voir le rapport<ArrowRight/></a></Card>)}</div>}
