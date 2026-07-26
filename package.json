@@ -14,6 +14,7 @@
     "test:e2e": "playwright test",
     "test:smoke:ffe": "cross-env FFE_NETWORK_SMOKE=1 vitest run tests/ffe-player-network-smoke.test.ts tests/ffe-tournament-network-smoke.test.ts",
     "test:smoke:ffe-player": "cross-env FFE_NETWORK_SMOKE=1 vitest run tests/ffe-player-network-smoke.test.ts",
+    "test:smoke:fide": "cross-env FIDE_NETWORK_SMOKE=1 vitest run tests/fide-network-smoke.test.ts",
     "lint": "eslint . --ignore-pattern dist --ignore-pattern .next --ignore-pattern .netlify --ignore-pattern .output",
     "db:generate": "prisma generate",
     "ffe:update-geography": "node scripts/update-french-departments.mjs"

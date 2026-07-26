@@ -2,6 +2,8 @@
 
 EloScope transforme la fiche officielle d’un tournoi de la Fédération Française des Échecs en rapports visuels pour les joueurs, clubs, entraîneurs et organisateurs. Le MVP fusionne la liste des participants avec la grille américaine et fournit des vues tournoi, joueur, club et rondes, ainsi qu’un moteur Elo configurable.
 
+La recherche joueurs ouvre aussi un rapport global progressif : profil et participations FFE, historique mensuel FIDE standard/rapide/blitz, statistiques déterministes, comparaison et scout adverse. La génération est à la demande, idempotente et partagée dans Netlify Blobs. Voir [l’intégration FIDE](docs/fide-integration.md) et [le rapport global](docs/player-global-report.md).
+
 Le rapport clubs compare les associations à partir de leurs données réelles : score moyen, bilan victoires-nulles-défaites, Elo et performance moyens, écart performance/Elo et variation Elo estimée. Le classement principal est ordonné par score moyen, puis par performance relative.
 
 La page `/tournois` recherche également le catalogue public FFE par nom, ville,

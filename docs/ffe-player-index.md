@@ -1,5 +1,11 @@
 # Index des joueurs et participations FFE
 
+## Liaison avec les rapports globaux
+
+Le code FFE reste la clé principale. Lorsqu’une fiche FFE publie un lien FIDE, l’identifiant est normalisé et utilisé par le rapport global sans recherche par nom. Le backfill des participations conserve sa priorité actuelle et continue indépendamment des fonctions FIDE ; aucune migration ne réinitialise les Blobs existants.
+
+Voir [ffe-fide-reconciliation.md](ffe-fide-reconciliation.md) pour les niveaux de confiance.
+
 ## Sources et recherche
 
 La page `/joueurs` appelle uniquement `GET /api/players/search`; le navigateur

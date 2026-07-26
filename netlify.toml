@@ -31,3 +31,12 @@
 
 [functions."ffe-player-participations-worker"]
   background = true
+
+[functions."fide-player-report-worker"]
+  background = true
+
+[functions."fide-player-watchdog"]
+  schedule = "27 */6 * * *"
+
+[functions."fide-rating-list-sync"]
+  schedule = "41 4 2 * *"
