@@ -17,6 +17,8 @@ import { formatNumber, formatScore, signed } from "@/lib/format";
 import { Avatar, Card, EmptyState, Kpi, SectionTitle } from "@/components/ui";
 import { EChart } from "@/components/echart";
 import { TournamentDetailPage, TournamentSearchPage } from "@/components/tournament-catalog";
+import { PlayerProfilePage, PlayerSearchPage, PrivacyPage } from "@/components/player-directory";
+import { SharedReportPreparation } from "@/components/shared-report";
 
 const LEGACY_STORAGE_KEY = "eloscope:ffe-report";
 const SESSION_REPORT_KEY = "eloscope:session-report";
@@ -236,8 +238,18 @@ function rememberPlayer(player: ImportedPlayer, tournament: string) {
   sessionStorage.setItem(SESSION_HISTORY_KEY, JSON.stringify(history));
 }
 
-function playerHref(player: ImportedPlayer) {
-  return `${BASE}/joueurs/${player.id}`;
+function sharedReportRef(report: NormalizedTournament | null) {
+  if (!report?.report.sourceUrl) return undefined;
+  try { return new URL(report.report.sourceUrl).searchParams.get("Ref") ?? undefined; } catch { return undefined; }
+}
+
+function reportBase(report: NormalizedTournament) {
+  const ref = sharedReportRef(report);
+  return ref ? `/tournoi/${ref}` : BASE;
+}
+
+function reportPlayerHref(report: NormalizedTournament, player: ImportedPlayer) {
+  return `${reportBase(report)}/joueurs/${player.id}`;
 }
 
 function downloadText(filename: string, text: string, type: string) {
@@ -284,16 +296,17 @@ export function EloScopeApp() {
   }, [report, search]);
   const navigation = [
     { href: "/tournois", label: "Recherche", icon: Search, active: pathname === "/" || pathname.startsWith("/tournois") },
+    { href: "/joueurs", label: "Joueurs", icon: Users, active: pathname === "/joueurs" || /^\/joueurs\/[A-Z]\d{5}$/i.test(pathname) },
     {
-      href: report ? `${BASE}/vue-ensemble` : "/importer",
+      href: report ? `${reportBase(report)}/vue-ensemble` : "/importer",
       label: "Lien FFE",
       icon: Trophy,
       active: pathname === "/importer" || pathname.endsWith("/vue-ensemble"),
     },
     ...(report ? [
-      { href: `${BASE}/classement`, label: "Classement", icon: BarChart3, active: pathname.endsWith("/classement") || pathname.includes("/joueurs/") },
-      { href: `${BASE}/clubs`, label: "Clubs", icon: Building2, active: pathname.endsWith("/clubs") },
-      { href: `${BASE}/rondes`, label: "Rondes", icon: CalendarDays, active: pathname.endsWith("/rondes") },
+      { href: `${reportBase(report)}/classement`, label: "Classement", icon: BarChart3, active: pathname.endsWith("/classement") || pathname.startsWith("/tournoi/") && pathname.includes("/joueurs/") },
+      { href: `${reportBase(report)}/clubs`, label: "Clubs", icon: Building2, active: pathname.endsWith("/clubs") },
+      { href: `${reportBase(report)}/rondes`, label: "Rondes", icon: CalendarDays, active: pathname.endsWith("/rondes") },
     ] : []),
   ];
   const changeTournament = (key: string) => {
@@ -320,12 +333,13 @@ export function EloScopeApp() {
         </nav>
         <div className="sidebar-section"><span>Session</span><a href="/rapports-recents"><Clock3 size={16}/>Historique récent</a></div>
         {reports.length > 0 && <div className="sidebar-recents" aria-label="Tournois de la session">{reports.map((item) =>
-          <a href={`${BASE}/vue-ensemble`} className={report && reportKey(item) === reportKey(report) ? "active" : ""} onClick={() => setReport(item)} key={reportKey(item)}>
+          <a href={`${reportBase(item)}/vue-ensemble`} className={report && reportKey(item) === reportKey(report) ? "active" : ""} onClick={() => setReport(item)} key={reportKey(item)}>
             <span className="file-icon">F</span><span><b>{item.report.title}</b><small>{item.players.length} joueurs · {item.report.totalRounds} rondes</small></span>
           </a>
         )}</div>}
         <div className="sidebar-bottom">
           <a href="/a-propos-elo"><HelpCircle size={17}/>À propos des calculs Elo</a>
+          <a href="/donnees-confidentialite"><Info size={17}/>Données et confidentialité</a>
           <a href="/parametres"><Settings size={17}/>Paramètres</a>
         </div>
       </aside>
@@ -336,7 +350,7 @@ export function EloScopeApp() {
           <div className="global-search">
             <Search size={18}/>
             <input value={search} onChange={(event) => setSearch(event.target.value)} placeholder="Rechercher dans le tournoi importé…" aria-label="Recherche globale"/>
-            {matches.length > 0 && <div className="search-results">{matches.map((player) => <a href={playerHref(player)} key={player.id} onClick={() => rememberPlayer(player, report!.report.title)}><Avatar name={player.name}/><span>{player.name}<small>{player.rating ? `${formatNumber(player.rating)} Elo` : "Non classé"}{player.club ? ` · ${player.club}` : ""}</small></span></a>)}</div>}
+            {matches.length > 0 && <div className="search-results">{matches.map((player) => <a href={reportPlayerHref(report!, player)} key={player.id} onClick={() => rememberPlayer(player, report!.report.title)}><Avatar name={player.name}/><span>{player.name}<small>{player.rating ? `${formatNumber(player.rating)} Elo` : "Non classé"}{player.club ? ` · ${player.club}` : ""}</small></span></a>)}</div>}
           </div>
           {report && reports.length > 1 ? <label className="tournament-switcher">
             <span>Tournoi</span>
@@ -370,10 +384,17 @@ function PageRouter({
   if (!ready) return <div className="narrow-page"><Card className="empty-state"><strong>Chargement du rapport…</strong></Card></div>;
   if (pathname === "/") return <TournamentSearchPage/>;
   if (pathname === "/tournois") return <TournamentSearchPage/>;
+  if (pathname === "/joueurs") return <PlayerSearchPage/>;
+  if (/^\/joueurs\/[A-Z]\d{5}$/i.test(pathname)) return <PlayerProfilePage ffeCode={pathname.split("/").at(-1)!}/>;
+  if (pathname === "/donnees-confidentialite") return <PrivacyPage/>;
   if (/^\/tournois\/\d+$/.test(pathname)) return <TournamentDetailPage ffeRef={pathname.split("/").at(-1)!} setReport={setReport}/>;
-  if (pathname === "/importer") return <ImportPage setReport={setReport}/>;
+  if (pathname === "/importer") return <ImportPage/>;
   if (pathname === "/rapports-recents") return <RecentPage reports={reports} setReport={setReport}/>;
   if (pathname === "/a-propos-elo") return <MethodPage/>;
+  const sharedMatch = pathname.match(/^\/tournoi\/(\d+)(?:\/(vue-ensemble|classement|clubs|rondes|joueurs)(?:\/([^/]+))?)?$/);
+  if (sharedMatch && (!report || sharedReportRef(report) !== sharedMatch[1] || !sharedMatch[2])) {
+    return <SharedReportPreparation ffeRef={sharedMatch[1]} entryId={sharedMatch[2] === "joueurs" ? sharedMatch[3] : undefined} setReport={setReport}/>;
+  }
   if (!report) return <NoReport/>;
   if (pathname.includes("/joueurs/")) return <PlayerReport report={report} id={pathname.split("/").at(-1)}/>;
   if (pathname.endsWith("/classement") || pathname.endsWith("/joueurs")) return <RankingPage report={report}/>;
@@ -383,57 +404,33 @@ function PageRouter({
   return <TournamentSearchPage/>;
 }
 
-function ImportPage({ setReport }: { setReport: (report: NormalizedTournament) => void }) {
-  return <div className="narrow-page"><div className="page-heading"><span className="eyebrow">Source officielle</span><h1>Importer un tournoi FFE</h1><p>Collez le lien de la fiche tournoi. EloScope en déduit automatiquement la liste des participants et la grille américaine.</p></div><ImportPanel setReport={setReport}/></div>;
+function ImportPage() {
+  return <div className="narrow-page"><div className="page-heading"><span className="eyebrow">Source officielle</span><h1>Ouvrir un tournoi FFE</h1><p>Collez le lien de la fiche tournoi. EloScope vérifie le cache partagé et prépare automatiquement le rapport si nécessaire.</p></div><ImportPanel/></div>;
 }
 
-function ImportPanel({ compact = false, setReport }: { compact?: boolean; setReport: (report: NormalizedTournament) => void }) {
+function ImportPanel({ compact = false }: { compact?: boolean }) {
   const [url, setUrl] = useState("");
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState("");
-  const [preview, setPreview] = useState<NormalizedTournament | null>(null);
   const valid = /^https:\/\/(www\.)?echecs\.asso\.fr\/FicheTournoi\.aspx\?[^#]*\bRef=\d+/i.test(url);
   const analyze = async () => {
     setError(""); setLoading(true);
     try {
-      const response = await fetch("/api/import", {
-        method: "POST", headers: { "content-type": "application/json" },
-        body: JSON.stringify({ type: "url", input: url }),
-      });
-      const payload = await response.json() as { data?: NormalizedTournament; error?: string };
-      if (!response.ok || !payload.data) throw new Error(payload.error ?? "Import impossible.");
-      if (!payload.data.players.length) throw new Error(payload.data.warnings[0] ?? "Aucun joueur détecté.");
-      setPreview(payload.data);
+      const ref = new URL(url).searchParams.get("Ref");
+      if (!ref || !/^\d+$/.test(ref)) throw new Error("Référence FFE invalide.");
+      window.location.assign(`/tournoi/${ref}`);
     } catch (caught) {
-      setError(caught instanceof Error ? caught.message : "Import impossible.");
-    } finally { setLoading(false); }
+      setError(caught instanceof Error ? caught.message : "Ouverture impossible.");
+      setLoading(false);
+    }
   };
-  const generate = () => {
-    if (!preview) return;
-    setReport(preview);
-    window.location.assign(`${BASE}/vue-ensemble`);
-  };
-  if (preview) return <Card className="verification">
-    <div className="verification-head"><span className="success-circle"><Check/></span><div><h2>Tournoi FFE reconnu</h2><p>La liste des participants et la grille américaine ont été rapprochées.</p></div></div>
-    <dl className="verification-grid">
-      <div><dt>Tournoi</dt><dd>{preview.report.title}</dd></div>
-      <div><dt>Joueurs</dt><dd>{preview.players.length}</dd></div>
-      <div><dt>Rondes</dt><dd>{preview.report.currentRound} / {preview.report.totalRounds}</dd></div>
-      <div><dt>Joueurs avec Elo</dt><dd>{preview.players.filter((player) => player.rating).length}</dd></div>
-      <div><dt>Fédérations</dt><dd>{new Set(preview.players.map((player) => player.federation).filter(Boolean)).size}</dd></div>
-      <div><dt>Clubs</dt><dd>{new Set(preview.players.map((player) => player.club).filter(Boolean)).size}</dd></div>
-      <div><dt>Avertissements</dt><dd>{preview.warnings.length}</dd></div>
-    </dl>
-    {preview.warnings.length > 0 && <div className="notice warning"><CircleAlert/><p>{preview.warnings.join(" ")}</p></div>}
-    <div className="card-actions"><button className="button secondary" onClick={() => setPreview(null)}>Changer le lien</button><button className="button primary" onClick={generate}>Générer le rapport <ArrowRight/></button></div>
-  </Card>;
   return <Card className={compact ? "hero-import" : "import-card"}>
     <div className="field-stack"><label htmlFor={compact ? "home-url" : "source-url"}>Lien de la fiche tournoi FFE</label><div className="input-with-icon"><Search/><input id={compact ? "home-url" : "source-url"} value={url} onChange={(event) => setUrl(event.target.value)} placeholder="https://echecs.asso.fr/FicheTournoi.aspx?Ref=IDENTIFIANT DU TOURNOI" /></div>
       <p className="field-help"><Info/>EloScope récupère automatiquement <code>Action=Ls</code> pour les clubs et <code>Action=Ga</code> pour les résultats.</p>
       {url && !valid && <p className="field-error"><CircleAlert/>Collez une URL FicheTournoi.aspx?Ref=… du domaine officiel echecs.asso.fr.</p>}
       {error && <div className="notice warning"><CircleAlert/><p>{error}</p></div>}
     </div>
-    <div className={compact ? "hero-import-action" : "card-actions"}><button disabled={!valid || loading} className="button primary" onClick={analyze}>{loading ? "Récupération du tournoi…" : "Analyser le tournoi"} <ArrowRight/></button></div>
+    <div className={compact ? "hero-import-action" : "card-actions"}><button disabled={!valid || loading} className="button primary" onClick={analyze}>{loading ? "Ouverture du rapport…" : "Voir le rapport"} <ArrowRight/></button></div>
   </Card>;
 }
 
@@ -443,14 +440,15 @@ function NoReport() {
 
 function TournamentHeader({ report, active }: { report: NormalizedTournament; active: string }) {
   const tabs = [["vue-ensemble", "Vue d’ensemble"], ["classement", "Classement"], ["clubs", "Clubs"], ["rondes", "Rondes"]];
+  const base = reportBase(report);
   return <>
     <div className="breadcrumbs"><a href="/tournois">Recherche</a><span>/</span><strong>{report.report.title}</strong></div>
     <div className="tournament-head">
       <div className="tournament-emblem"><Trophy/></div>
-      <div><span className="status-pill success"><Check/>Source FFE</span><h1>{report.report.title}</h1><p><CalendarDays/>Données après la ronde {report.report.currentRound} sur {report.report.totalRounds}</p><small>Importé le {new Date(report.report.importedAt).toLocaleString("fr-FR", { timeZone: "Europe/Paris" })}</small></div>
-      <div className="head-actions"><a className="icon-button" href="/importer" title="Actualiser depuis la FFE"><RefreshCcw/></a><button className="button secondary" onClick={() => window.print()}><Printer/>PDF</button><button className="button primary" onClick={() => exportPlayers(report.players)}><Download/>Exporter</button></div>
+      <div><span className="status-pill success"><Check/>Source FFE</span><h1>{report.report.title}</h1><p><CalendarDays/>Données après la ronde {report.report.currentRound} sur {report.report.totalRounds}</p><small>Rapport généré le {new Date(report.report.importedAt).toLocaleString("fr-FR", { timeZone: "Europe/Paris" })}</small></div>
+      <div className="head-actions"><a className="icon-button" href={sharedReportRef(report) ? `/tournoi/${sharedReportRef(report)}` : "/importer"} title="Actualiser depuis la FFE"><RefreshCcw/></a><button className="button secondary" onClick={() => window.print()}><Printer/>PDF</button><button className="button primary" onClick={() => exportPlayers(report.players)}><Download/>Exporter</button></div>
     </div>
-    <nav className="context-tabs" aria-label="Sections du tournoi">{tabs.map(([key, label]) => <a href={`${BASE}/${key}`} className={active === key ? "active" : ""} key={key}>{label}</a>)}</nav>
+    <nav className="context-tabs" aria-label="Sections du tournoi">{tabs.map(([key, label]) => <a href={`${base}/${key}`} className={active === key ? "active" : ""} key={key}>{label}</a>)}</nav>
   </>;
 }
 
@@ -484,19 +482,19 @@ function TournamentOverview({ report }: { report: NormalizedTournament }) {
       <Kpi label="Clubs" value={new Set(report.players.map((player) => player.club).filter(Boolean)).size} detail="Liste officielle des participants" icon={<Building2/>}/>
       <Kpi label="Meilleure perf. relative" value={bestRelative ? signed(bestRelative.performance! - bestRelative.rating!, 0) : "—"} detail={bestRelative?.name ?? "Performance absente"} tone="positive" icon={<BarChart3/>}/>
     </div>
-    <Card className="chart-card wide"><SectionTitle help="Score cumulé provenant des résultats de chaque ronde." action={<span className="select-like">Top 5 <ChevronDown/></span>}>Progression du score</SectionTitle><div className="chart-with-legend"><EChart option={progressionOption} height={310} ariaLabel="Progression des cinq premiers joueurs"/><div className="chart-legend">{top.map((player, index) => <a href={playerHref(player)} key={player.id}><i style={{ background: colors[index] }}/><span>{player.name}<small>{formatScore(player.score)} points</small></span></a>)}</div></div></Card>
-    <div className="dashboard-grid two"><Card className="chart-card"><SectionTitle>Distribution Elo</SectionTitle><EChart option={distributionOption} height={270} ariaLabel="Distribution des classements Elo"/></Card><RankingPreview players={report.players}/></div>
+    <Card className="chart-card wide"><SectionTitle help="Score cumulé provenant des résultats de chaque ronde." action={<span className="select-like">Top 5 <ChevronDown/></span>}>Progression du score</SectionTitle><div className="chart-with-legend"><EChart option={progressionOption} height={310} ariaLabel="Progression des cinq premiers joueurs"/><div className="chart-legend">{top.map((player, index) => <a href={reportPlayerHref(report, player)} key={player.id}><i style={{ background: colors[index] }}/><span>{player.name}<small>{formatScore(player.score)} points</small></span></a>)}</div></div></Card>
+    <div className="dashboard-grid two"><Card className="chart-card"><SectionTitle>Distribution Elo</SectionTitle><EChart option={distributionOption} height={270} ariaLabel="Distribution des classements Elo"/></Card><RankingPreview report={report}/></div>
   </div>;
 }
 
-function RankingPreview({ players }: { players: ImportedPlayer[] }) {
-  return <Card className="table-card"><SectionTitle action={<a className="text-link" href={`${BASE}/classement`}>Classement complet <ArrowRight/></a>}>Premières places</SectionTitle><div className="table-scroll always"><table><thead><tr><th>Place</th><th>Joueur</th><th>Elo</th><th>Score</th><th>Perf.</th></tr></thead><tbody>{[...players].sort((a,b) => a.rank-b.rank).slice(0,10).map((player) => <tr key={player.id} onClick={() => window.location.assign(playerHref(player))}><td><span className={`rank rank-${player.rank}`}>{player.rank}</span></td><td><div className="player-cell"><Avatar name={player.name}/><strong>{player.name}</strong></div></td><td>{player.rating ?? "NC"}</td><td>{formatScore(player.score)}</td><td>{player.performance ?? "—"}</td></tr>)}</tbody></table></div></Card>;
+function RankingPreview({ report }: { report: NormalizedTournament }) {
+  return <Card className="table-card"><SectionTitle action={<a className="text-link" href={`${reportBase(report)}/classement`}>Classement complet <ArrowRight/></a>}>Premières places</SectionTitle><div className="table-scroll always"><table><thead><tr><th>Place</th><th>Joueur</th><th>Elo</th><th>Score</th><th>Perf.</th></tr></thead><tbody>{[...report.players].sort((a,b) => a.rank-b.rank).slice(0,10).map((player) => <tr key={player.id} onClick={() => window.location.assign(reportPlayerHref(report, player))}><td><span className={`rank rank-${player.rank}`}>{player.rank}</span></td><td><div className="player-cell"><Avatar name={player.name}/><strong>{player.name}</strong></div></td><td>{player.rating ?? "NC"}</td><td>{formatScore(player.score)}</td><td>{player.performance ?? "—"}</td></tr>)}</tbody></table></div></Card>;
 }
 
 function RankingPage({ report }: { report: NormalizedTournament }) {
   const [query, setQuery] = useState("");
   const players = report.players.filter((player) => player.name.toLocaleLowerCase("fr").includes(query.toLocaleLowerCase("fr"))).sort((a, b) => a.rank - b.rank);
-  return <div className="report-page"><TournamentHeader report={report} active="classement"/><Card className="table-card"><SectionTitle action={<button className="button secondary" onClick={() => exportPlayers(players)}><Download/>Exporter CSV</button>}>Classement FFE</SectionTitle><div className="table-toolbar"><div className="input-with-icon"><Search/><input value={query} onChange={(event) => setQuery(event.target.value)} placeholder="Rechercher un joueur…"/></div><span>{players.length} joueurs</span></div><div className="table-scroll always"><table><thead><tr><th>Place</th><th>Joueur</th><th>Club</th><th>Elo</th><th>Catégorie</th><th>Fédération</th><th>Ligue</th><th>Score</th><th>Départages calculés</th><th>Performance estimée</th><th>Var. Elo estimée</th></tr></thead><tbody>{players.map((player) => { const scenario = calculateTournamentDelta(player.rating ?? 0, toRatingRounds(player), 20); return <tr key={player.id} onClick={() => { rememberPlayer(player, report.report.title); window.location.assign(playerHref(player)); }}><td><span className={`rank rank-${player.rank}`}>{player.rank}</span></td><td><div className="player-cell"><Avatar name={player.name}/><strong>{player.name}</strong></div></td><td>{player.club ?? "—"}</td><td>{player.rating ?? "NC"}</td><td>{player.category ?? "—"}</td><td>{player.federation ?? "—"}</td><td>{player.league ?? "—"}</td><td><strong>{formatScore(player.score)} / {report.report.totalRounds}</strong></td><td>{Object.entries(player.tieBreaks).map(([label, value]) => `${tieBreakAbbreviation(label)} : ${value == null ? "—" : formatNumber(value)}`).join(" · ") || "—"}</td><td>{player.performance ?? "—"}</td><td className={scenario.roundedTotalDelta >= 0 ? "positive-text" : "negative-text"}>{player.rating ? signed(scenario.roundedTotalDelta, 0) : "—"}</td></tr>; })}</tbody></table></div></Card></div>;
+  return <div className="report-page"><TournamentHeader report={report} active="classement"/><Card className="table-card"><SectionTitle action={<button className="button secondary" onClick={() => exportPlayers(players)}><Download/>Exporter CSV</button>}>Classement FFE</SectionTitle><div className="table-toolbar"><div className="input-with-icon"><Search/><input value={query} onChange={(event) => setQuery(event.target.value)} placeholder="Rechercher un joueur…"/></div><span>{players.length} joueurs</span></div><div className="table-scroll always"><table><thead><tr><th>Place</th><th>Joueur</th><th>Club</th><th>Elo</th><th>Catégorie</th><th>Fédération</th><th>Ligue</th><th>Score</th><th>Départages calculés</th><th>Performance estimée</th><th>Var. Elo estimée</th></tr></thead><tbody>{players.map((player) => { const scenario = calculateTournamentDelta(player.rating ?? 0, toRatingRounds(player), 20); return <tr key={player.id} onClick={() => { rememberPlayer(player, report.report.title); window.location.assign(reportPlayerHref(report, player)); }}><td><span className={`rank rank-${player.rank}`}>{player.rank}</span></td><td><div className="player-cell"><Avatar name={player.name}/><strong>{player.name}</strong></div></td><td>{player.club ?? "—"}</td><td>{player.rating ?? "NC"}</td><td>{player.category ?? "—"}</td><td>{player.federation ?? "—"}</td><td>{player.league ?? "—"}</td><td><strong>{formatScore(player.score)} / {report.report.totalRounds}</strong></td><td>{Object.entries(player.tieBreaks).map(([label, value]) => `${tieBreakAbbreviation(label)} : ${value == null ? "—" : formatNumber(value)}`).join(" · ") || "—"}</td><td>{player.performance ?? "—"}</td><td className={scenario.roundedTotalDelta >= 0 ? "positive-text" : "negative-text"}>{player.rating ? signed(scenario.roundedTotalDelta, 0) : "—"}</td></tr>; })}</tbody></table></div></Card></div>;
 }
 
 function PlayerReport({ report, id }: { report: NormalizedTournament; id?: string }) {
@@ -518,8 +516,8 @@ function PlayerReport({ report, id }: { report: NormalizedTournament; id?: strin
     yAxis: { type: "value", name: "Variation" },
     series: [{ type: "line", smooth: .18, symbolSize: 8, data: [0, ...scenario.perRound.map((round) => Number(round.cumulative.toFixed(2)))], lineStyle: { color: "#23855B", width: 3 }, areaStyle: { color: "rgba(35,133,91,.10)" } }],
   };
-  return <div className="report-page"><div className="breadcrumbs"><a href={`${BASE}/vue-ensemble`}>{report.report.title}</a><span>/</span><strong>{player.name}</strong></div>
-    <div className="player-head"><div className="player-identity"><Avatar name={player.name}/><div><span className="status-pill">{player.category ?? "Participant"}</span><h1>{player.name}</h1><p>{player.club ?? "Club non indiqué"} · {player.federation ?? "Fédération non indiquée"} · {player.league ?? "Ligue non indiquée"}</p><small>Elo initial <strong>{player.rating ? formatNumber(player.rating) : "Non classé"}</strong></small></div></div><div className="player-nav"><a className="button secondary" href={playerHref(previous)}><ArrowLeft/>Précédent</a><select value={player.id} aria-label="Joueur courant" onChange={(event) => { const selectedPlayer = ordered.find((item) => item.id === event.target.value) ?? player; rememberPlayer(selectedPlayer, report.report.title); window.location.assign(playerHref(selectedPlayer)); }}>{ordered.map((item) => <option value={item.id} key={item.id}>{item.name}</option>)}</select><a className="button secondary" href={playerHref(next)}>Suivant<ArrowRight/></a></div></div>
+  return <div className="report-page"><div className="breadcrumbs"><a href={`${reportBase(report)}/vue-ensemble`}>{report.report.title}</a><span>/</span><strong>{player.name}</strong></div>
+    <div className="player-head"><div className="player-identity"><Avatar name={player.name}/><div><span className="status-pill">{player.category ?? "Participant"}</span><h1>{player.name}</h1><p>{player.club ?? "Club non indiqué"} · {player.federation ?? "Fédération non indiquée"} · {player.league ?? "Ligue non indiquée"}</p><small>Elo initial <strong>{player.rating ? formatNumber(player.rating) : "Non classé"}</strong></small></div></div><div className="player-nav"><a className="button secondary" href={reportPlayerHref(report, previous)}><ArrowLeft/>Précédent</a><select value={player.id} aria-label="Joueur courant" onChange={(event) => { const selectedPlayer = ordered.find((item) => item.id === event.target.value) ?? player; rememberPlayer(selectedPlayer, report.report.title); window.location.assign(reportPlayerHref(report, selectedPlayer)); }}>{ordered.map((item) => <option value={item.id} key={item.id}>{item.name}</option>)}</select><a className="button secondary" href={reportPlayerHref(report, next)}>Suivant<ArrowRight/></a></div></div>
     <div className="kpi-grid five"><Kpi label="Score" value={`${formatScore(player.score)} / ${report.report.totalRounds}`} detail="Points du tournoi" tone="positive" icon={<Star/>}/><Kpi label="Classement final" value={`${player.rank}e / ${report.players.length}`} detail="Classement FFE" icon={<Trophy/>}/><Kpi label="Performance estimée" value={player.performance ? formatNumber(player.performance) : "—"} detail={player.performance ? "Calculée d’après les adversaires" : "Adversaires cotés insuffisants"} icon={<Gauge/>}/><Kpi label="Parties cotées" value={scenario.perRound.filter((round) => round.included).length} detail={`${player.rounds.length} rondes`} icon={<Check/>}/><Kpi label="Variation Elo estimée" value={player.rating ? signed(scenario.roundedTotalDelta, 0) : "—"} detail={player.rating ? `${formatNumber(initial)} → ${formatNumber(scenario.estimatedNewRating)}` : "Elo initial absent"} tone={scenario.roundedTotalDelta >= 0 ? "positive" : "negative"} icon={<BarChart3/>}/></div>
     <div className="player-layout"><div className="player-main"><Card className="chart-card"><SectionTitle help="Estimation fondée uniquement sur les rondes jouées et cotées." action={<span className={`status-pill ${scenario.roundedTotalDelta >= 0 ? "success" : "danger"}`}>Final : {player.rating ? signed(scenario.roundedTotalDelta, 0) : "—"}</span>}>Variation Elo cumulée</SectionTitle><EChart option={lineOption} height={330} ariaLabel="Variation Elo cumulée"/></Card><PlayerRounds player={player} scenario={scenario}/></div><aside className="player-aside"><Card className="settings-card"><SectionTitle>Estimation Elo</SectionTitle><label>Classement avant le tournoi<input type="number" value={initial} min={800} max={3000} onChange={(event) => setInitial(Number(event.target.value) || 800)}/></label><span className="field-label">Coefficient K</span><div className="k-buttons">{[10,20,40].map((value) => <button className={k === value ? "selected" : ""} onClick={() => setK(value)} key={value}>{value}</button>)}<input aria-label="K personnalisé" value={k} type="number" min={1} max={100} onChange={(event) => setK(Number(event.target.value) || 20)}/></div><p className="field-help"><CircleAlert/>Vérifiez votre coefficient K sur votre fiche officielle.</p></Card><Card className="summary-card"><SectionTitle>Résumé du parcours</SectionTitle>{performanceSummary.map((paragraph) => <p key={paragraph}>{paragraph}</p>)}</Card></aside></div>
     <p className="rating-disclaimer">Cette estimation porte uniquement sur les parties disponibles dans ce rapport. Le classement officiellement publié peut différer selon les règles applicables et l’homologation effective des parties.</p>
@@ -533,7 +531,7 @@ function PlayerRounds({ player, scenario }: { player: ImportedPlayer; scenario: 
 function RoundsPage({ report }: { report: NormalizedTournament }) {
   const [round, setRound] = useState(1);
   const results = report.players.map((player) => ({ player, result: player.rounds[round - 1] })).filter((item) => item.result);
-  return <div className="report-page"><TournamentHeader report={report} active="rondes"/><div className="round-selector"><div><span className="eyebrow">Résultats FFE</span><h1>Ronde {round}</h1></div><div>{Array.from({ length: report.report.totalRounds }, (_, index) => <button className={round === index + 1 ? "selected" : ""} onClick={() => setRound(index + 1)} key={index}>{index + 1}</button>)}</div></div><div className="kpi-grid five"><Kpi label="Victoires" value={results.filter((item) => item.result.result === 1).length} detail="Résultats individuels" tone="positive" icon={<Check/>}/><Kpi label="Nulles" value={results.filter((item) => item.result.result === .5).length} detail="½ point" icon={<Target/>}/><Kpi label="Défaites" value={results.filter((item) => item.result.result === 0).length} detail="Résultats individuels" tone="negative" icon={<CircleAlert/>}/><Kpi label="Données disponibles" value={results.filter((item) => item.result.played).length} detail={`${report.players.length} participants`} icon={<Users/>}/><Kpi label="Ronde" value={`${round} / ${report.report.totalRounds}`} detail="Sélection courante" icon={<Gauge/>}/></div><Card className="table-card"><SectionTitle>Résultats individuels</SectionTitle><div className="table-scroll always"><table><thead><tr><th>Joueur</th><th>Couleur</th><th>Adversaire</th><th>Elo adverse</th><th>Résultat</th><th>Notation</th></tr></thead><tbody>{results.map(({ player, result }) => <tr key={player.id} onClick={() => window.location.assign(playerHref(player))}><td><strong>{player.name}</strong></td><td>{result.color === "WHITE" ? "Blancs" : result.color === "BLACK" ? "Noirs" : "—"}</td><td>{result.opponentName ?? "—"}</td><td>{result.opponentRating ?? "—"}</td><td>{result.result === 1 ? "Victoire" : result.result === .5 ? "Nulle" : result.result === 0 ? "Défaite" : "Non joué"}</td><td>{result.notation || "—"}</td></tr>)}</tbody></table></div></Card></div>;
+  return <div className="report-page"><TournamentHeader report={report} active="rondes"/><div className="round-selector"><div><span className="eyebrow">Résultats FFE</span><h1>Ronde {round}</h1></div><div>{Array.from({ length: report.report.totalRounds }, (_, index) => <button className={round === index + 1 ? "selected" : ""} onClick={() => setRound(index + 1)} key={index}>{index + 1}</button>)}</div></div><div className="kpi-grid five"><Kpi label="Victoires" value={results.filter((item) => item.result.result === 1).length} detail="Résultats individuels" tone="positive" icon={<Check/>}/><Kpi label="Nulles" value={results.filter((item) => item.result.result === .5).length} detail="½ point" icon={<Target/>}/><Kpi label="Défaites" value={results.filter((item) => item.result.result === 0).length} detail="Résultats individuels" tone="negative" icon={<CircleAlert/>}/><Kpi label="Données disponibles" value={results.filter((item) => item.result.played).length} detail={`${report.players.length} participants`} icon={<Users/>}/><Kpi label="Ronde" value={`${round} / ${report.report.totalRounds}`} detail="Sélection courante" icon={<Gauge/>}/></div><Card className="table-card"><SectionTitle>Résultats individuels</SectionTitle><div className="table-scroll always"><table><thead><tr><th>Joueur</th><th>Couleur</th><th>Adversaire</th><th>Elo adverse</th><th>Résultat</th><th>Notation</th></tr></thead><tbody>{results.map(({ player, result }) => <tr key={player.id} onClick={() => window.location.assign(reportPlayerHref(report, player))}><td><strong>{player.name}</strong></td><td>{result.color === "WHITE" ? "Blancs" : result.color === "BLACK" ? "Noirs" : "—"}</td><td>{result.opponentName ?? "—"}</td><td>{result.opponentRating ?? "—"}</td><td>{result.result === 1 ? "Victoire" : result.result === .5 ? "Nulle" : result.result === 0 ? "Défaite" : "Non joué"}</td><td>{result.notation || "—"}</td></tr>)}</tbody></table></div></Card></div>;
 }
 
 function ClubsPage({ report }: { report: NormalizedTournament }) {
@@ -630,7 +628,7 @@ function ClubsPage({ report }: { report: NormalizedTournament }) {
         <span className="club-icon"><Building2/></span>
         <div><h3>{club.name}</h3><p>{club.players.length} joueur{club.players.length > 1 ? "s" : ""} · {formatNumber(club.scorePercent)} %</p><small>{club.players.slice(0, 3).map((player) => player.name).join(" · ")}{club.players.length > 3 ? "…" : ""}</small></div>
       </article>)}</div>
-      <Card className="table-card"><SectionTitle>Liste complète des joueurs par club</SectionTitle><div className="table-scroll always"><table><thead><tr><th>Club</th><th>Joueur</th><th>Elo</th><th>Classement</th><th>Score</th></tr></thead><tbody>{clubs.flatMap((club) => club.players.map((player) => <tr key={`${club.name}-${player.id}`} onClick={() => { rememberPlayer(player, report.report.title); window.location.assign(playerHref(player)); }}><td><strong>{club.name}</strong></td><td>{player.name}</td><td>{player.rating ?? "NC"}</td><td>{player.rank}</td><td>{formatScore(player.score)} / {report.report.totalRounds}</td></tr>))}</tbody></table></div></Card>
+      <Card className="table-card"><SectionTitle>Liste complète des joueurs par club</SectionTitle><div className="table-scroll always"><table><thead><tr><th>Club</th><th>Joueur</th><th>Elo</th><th>Classement</th><th>Score</th></tr></thead><tbody>{clubs.flatMap((club) => club.players.map((player) => <tr key={`${club.name}-${player.id}`} onClick={() => { rememberPlayer(player, report.report.title); window.location.assign(reportPlayerHref(report, player)); }}><td><strong>{club.name}</strong></td><td>{player.name}</td><td>{player.rating ?? "NC"}</td><td>{player.rank}</td><td>{formatScore(player.score)} / {report.report.totalRounds}</td></tr>))}</tbody></table></div></Card>
     </> : <EmptyState title="Aucun club trouvé">La liste des participants FFE ne contient aucun club exploitable pour ce tournoi.</EmptyState>}
   </div>;
 }

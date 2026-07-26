@@ -180,16 +180,17 @@ export function TournamentSearchPage() {
 function TournamentResultCard({ item, search }: { item: FfeTournamentCatalogItem; search: string }) {
   const dates = formatDates(item);
   const detailHref = `/tournois/${item.ffeRef}${search ? `?${search}` : ""}`;
+  const openHref = item.hasResults ? `/tournoi/${item.ffeRef}` : detailHref;
   return <article className="tournament-result-card">
     <div className="tournament-result-main">
       <div className="tournament-result-badges"><span className={`status-pill catalog-${item.status}`}>{item.status === "results_available" && <Check/>}{STATUS_LABELS[item.status]}</span>{item.cadence && item.cadence !== "unknown" && <span className="status-pill">{CADENCE_LABELS[item.cadence]}</span>}</div>
-      <h2><a href={detailHref}>{item.title}</a></h2>
+      <h2><a href={openHref}>{item.title}</a></h2>
       <p><MapPin/>{[item.city, item.departmentCode && `${item.departmentCode} · ${item.departmentName}`, item.regionName].filter(Boolean).join(" · ") || "Lieu non publié"}</p>
       <p><CalendarDays/>{dates}</p>
       <small>Réf. FFE {item.ffeRef} · Source : Fédération Française des Échecs</small>
     </div>
     <div className="tournament-result-action">
-      <a className={`button ${item.hasResults ? "primary" : "secondary"}`} href={detailHref}>{item.hasResults ? "Analyser le tournoi" : "Voir les informations"}<ArrowRight/></a>
+      <a className={`button ${item.hasResults ? "primary" : "secondary"}`} href={openHref}>{item.hasResults ? "Voir le rapport" : "Voir les informations"}<ArrowRight/></a>
       <a className="source-link" href={item.sourceDetailUrl} target="_blank" rel="noreferrer">Page source<ExternalLink/></a>
     </div>
   </article>;
@@ -217,7 +218,7 @@ export function TournamentDetailPage({ ffeRef, setReport }: { ffeRef: string; se
       const body = await response.json() as { data?: NormalizedTournament; error?: string };
       if (!response.ok || !body.data) throw new Error(body.error ?? "Analyse impossible");
       setReport(body.data);
-      window.location.assign("/tournoi/importe/vue-ensemble");
+      window.location.assign(`/tournoi/${ffeRef}/vue-ensemble`);
     } catch (caught) {
       setError(caught instanceof Error ? caught.message : "Analyse impossible");
     } finally { setAnalyzing(false); }
@@ -235,7 +236,7 @@ export function TournamentDetailPage({ ffeRef, setReport }: { ffeRef: string; se
     <Card className="tournament-detail-card"><dl>{details.map(([label, value]) => <div key={String(label)}><dt>{label}</dt><dd>{value}</dd></div>)}</dl>
       {!item.hasResults && <div className="notice"><Clock3/><p>Les résultats de ce tournoi ne sont pas encore disponibles. EloScope vérifiera automatiquement leur publication.</p></div>}
       {error && <div className="notice warning"><Info/><p>{error}</p></div>}
-      <div className="card-actions"><a className="button secondary" href={item.sourceDetailUrl} target="_blank" rel="noreferrer">Voir la fiche FFE<ExternalLink/></a>{item.hasResults && <button className="button primary" disabled={analyzing} onClick={analyze}>{analyzing ? "Analyse en cours…" : "Analyser le tournoi"}<ArrowRight/></button>}</div>
+      <div className="card-actions"><a className="button secondary" href={item.sourceDetailUrl} target="_blank" rel="noreferrer">Voir la fiche FFE<ExternalLink/></a>{item.hasResults && <button className="button primary" disabled={analyzing} onClick={analyze}>{analyzing ? "Préparation en cours…" : "Voir le rapport"}<ArrowRight/></button>}</div>
     </Card>
     <p className="catalog-attribution">Source : Fédération Française des Échecs. EloScope est un service indépendant et n’est pas un produit officiel de la FFE.</p>
   </div>;

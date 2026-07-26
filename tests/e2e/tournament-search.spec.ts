@@ -52,6 +52,12 @@ test("recherche Cappelle, combine les filtres et les conserve au retour", async 
   await page.route("**/api/tournaments/67414", async (route) => route.fulfill({
     contentType: "application/json", body: JSON.stringify(item),
   }));
+  await page.route("**/api/tournaments/67414/report**", async (route) => route.fulfill({
+    status: 202, contentType: "application/json", body: JSON.stringify({ state: "missing" }),
+  }));
+  await page.route("**/api/tournaments/67414/analyze**", async (route) => route.fulfill({
+    status: 202, contentType: "application/json", body: JSON.stringify({ state: "pending", metadata: { status: "fetching", progress: 15 } }),
+  }));
   await page.goto("/tournois");
   await expect(page.getByText("Archives historiques en cours d’indexation")).toBeVisible();
   await page.getByRole("button", { name: "Années 2000" }).click();
@@ -66,8 +72,8 @@ test("recherche Cappelle, combine les filtres et les conserve au retour", async 
   await expect(page).toHaveURL(/q=Cappelle/);
   await expect(page).toHaveURL(/region=Hauts-de-France/);
   await page.getByRole("link", { name: item.title }).click();
-  await expect(page.getByRole("heading", { name: item.title })).toBeVisible();
-  await page.getByRole("link", { name: "Retour à la recherche" }).click();
+  await expect(page.getByRole("heading", { name: "Préparation de votre rapport" })).toBeVisible({ timeout: 15_000 });
+  await page.goBack();
   await expect(page).toHaveURL(/department=59/);
-  await expect(page.getByLabel("Nom du tournoi, ville ou département")).toHaveValue("Cappelle");
+  await expect(page.getByLabel("Nom du tournoi, ville ou département")).toHaveValue("Cappelle", { timeout: 15_000 });
 });

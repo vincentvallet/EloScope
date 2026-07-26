@@ -135,8 +135,11 @@ dates extrêmes indexées et la progression du rattrapage : mois terminés, vide
 en attente, en échec, dernier mois traité et état de la chaîne.
 
 `GET /api/tournaments/:ffeRef` charge une fiche individuelle seulement à la
-demande et la met en cache. `POST /api/tournaments/:ffeRef/analyze` réutilise
-`FfeResultsAdapter`, comme `/api/import`.
+demande et la met en cache. `GET /api/tournaments/:ffeRef/report` consulte le
+cache partagé. `POST /api/tournaments/:ffeRef/analyze` réutilise
+`FfeResultsAdapter` sous un verrou par référence, puis enregistre le rapport
+complet dans un store Blobs distinct. Le catalogue reste léger : aucun des
+quelque 30 000 rapports n'est prégénéré.
 
 ## Diagnostic
 

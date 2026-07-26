@@ -9,6 +9,11 @@ département, région, dates, année, cadence et disponibilité des résultats.
 Le catalogue est synchronisé automatiquement côté Netlify : aucune requête FFE
 n’est envoyée pendant la saisie d’un utilisateur.
 
+La page `/joueurs` recherche l'annuaire public par nom, prénom ou code FFE et
+affiche les participations déjà couvertes par l'index progressif. Un clic sur un
+tournoi ouvre automatiquement son rapport : le premier visiteur le prépare,
+puis tous les suivants réutilisent la copie partagée.
+
 ## Stack
 
 - Next.js App Router, React, TypeScript strict et Tailwind CSS
@@ -17,7 +22,7 @@ n’est envoyée pendant la saisie d’un utilisateur.
 - Prisma et SQLite pour le schéma de persistance locale
 - Vitest et Playwright
 - Vinext/Vite avec sorties dédiées Cloudflare Sites et Netlify/Nitro
-- Netlify Functions, Scheduled Functions et Blobs pour le catalogue FFE
+- Netlify Functions, Scheduled Functions et Blobs pour le catalogue FFE, les profils et les rapports partagés
 
 ## Installation et lancement
 
@@ -51,7 +56,10 @@ La seule variable nécessaire est :
 DATABASE_URL="file:./dev.db"
 ```
 
-Le schéma Prisma prépare le stockage de rapports normalisés versionnés. Dans le MVP, aucun tournoi n’est préchargé. Le rapport courant et l’historique récent restent uniquement dans la session de l’onglet du navigateur.
+Le schéma Prisma prépare le stockage de rapports normalisés versionnés. Aucun
+tournoi n’est préchargé. Netlify Blobs est la source de vérité partagée des
+rapports générés à la demande ; la session de l’onglet reste seulement un cache
+secondaire compatible avec les rapports déjà ouverts.
 
 ## Tester les imports
 
@@ -65,7 +73,9 @@ Le schéma Prisma prépare le stockage de rapports normalisés versionnés. Dans
 - `GET /api/tournaments/catalog-status` expose la fraîcheur, les dates extrêmes
   et la progression réelle des archives depuis 2000.
 - `GET /api/tournaments/:ffeRef` complète et met en cache une fiche à la demande.
-- `POST /api/tournaments/:ffeRef/analyze` réutilise l’adaptateur d’import FFE.
+- `GET /api/tournaments/:ffeRef/report` lit le rapport partagé et sa progression.
+- `POST /api/tournaments/:ffeRef/analyze` prépare à la demande le rapport sous verrou.
+- `GET /api/players/search` et `GET /api/players/:ffeCode` exposent la recherche et les participations paginées.
 - La tâche planifiée quotidienne met à jour le mois courant et les deux mois
   précédents. Une tâche indépendante met à jour les annonces futures.
 - Le rattrapage accéléré vérifie automatiquement chaque mois depuis janvier
@@ -84,7 +94,9 @@ automatiquement par le runtime Netlify. Aucune variable d’environnement,
 création de table ou intervention dans l’interface Netlify n’est nécessaire.
 
 La documentation technique complète est dans
-[`docs/ffe-catalog.md`](docs/ffe-catalog.md).
+[`docs/ffe-catalog.md`](docs/ffe-catalog.md),
+[`docs/ffe-player-index.md`](docs/ffe-player-index.md) et
+[`docs/shared-report-cache.md`](docs/shared-report-cache.md).
 
 ## Exports
 
@@ -119,8 +131,11 @@ interne de déclenchement est généré automatiquement et reste dans Netlify Bl
   dépend du nombre réel de pages mensuelles et des éventuels ralentissements FFE.
 - Chess-Results est préparé comme adaptateur désactivé, sans récupération agressive.
 - L’export PDF repose sur l’impression navigateur, sans moteur PDF serveur.
-- L’historique de tournois et de joueurs est limité à la session de l’onglet et disparaît à sa fermeture.
+- L'historique récent de navigation reste limité à la session, mais les rapports eux-mêmes sont partagés et retrouvables par leur URL.
 - Les variations Elo sont des estimations ; l’homologation et le coefficient K officiel restent à vérifier.
 - vinext et Nitro sont encore expérimentaux ; la sortie Netlify doit être revalidée lors d’une mise à niveau majeure de l’un de ces outils.
 
 EloScope n’embarque aucune donnée de tournoi ou de joueur fictive.
+
+La nouvelle architecture décrite ici ne sera active en production qu'après un
+futur push et un déploiement explicitement contrôlé.
