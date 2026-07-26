@@ -19,10 +19,19 @@ describe.skipIf(process.env.FIDE_NETWORK_SMOKE !== "1")("smoke réseau FFE/FIDE 
     expect(normalizeFideId(profile.fideId!)).toBe("637610");
     const isolatedStorage = new MemoryFideStorage();
     const fideClient = new FideClient({ storage: isolatedStorage });
-    const response = await fideClient.html(`https://ratings.fide.com/profile/637610?smoke=${Date.now()}`, {
-      cacheKey: "fide/players/637610/profile-html.json",
-    });
-    const fide = parseFideProfile(response.body, "637610", response.fetchedAt);
+    let fide;
+    for (let attempt = 0; attempt < 3 && !fide; attempt += 1) {
+      const response = await fideClient.html(`https://ratings.fide.com/profile/637610?smoke=${Date.now()}-${attempt}`, {
+        cacheKey: `fide/players/637610/profile-html-smoke-${attempt}.json`,
+      });
+      try {
+        fide = parseFideProfile(response.body, "637610", response.fetchedAt);
+      } catch {
+        if (attempt < 2) await new Promise((resolve) => setTimeout(resolve, 1_000));
+      }
+    }
+    expect(fide).toBeDefined();
+    if (!fide) throw new Error("Profil FIDE de smoke indisponible");
     expect(fide).toMatchObject({
       fideId: "637610",
       standardRating: expect.any(Number),
@@ -47,12 +56,13 @@ describe.skipIf(process.env.FIDE_NETWORK_SMOKE !== "1")("smoke réseau FFE/FIDE 
       identityConfidence: "strong_name_match",
     });
     let built = await buildGlobalReport("W16194", { fide: isolatedStorage, players, client: fideClient });
-    for (let batch = 0; built.state === "queued" && batch < 30; batch += 1) {
+    for (let batch = 0; built.state === "queued" && batch < 100; batch += 1) {
       built = await buildGlobalReport("W16194", { fide: isolatedStorage, players, client: fideClient });
     }
     expect(built).toMatchObject({ state: "ready", report: { ffeCode: "W16194", fideId: "637610" } });
     expect(built.report?.coverage.oldestPeriod).toBe("2004-07-01");
     expect(built.report?.games.length).toBeGreaterThan(100);
+    expect(built.report?.games.filter((game) => game.result != null).length).toBeGreaterThan(100);
     console.info(JSON.stringify({
       event: "fide_network_smoke_summary",
       ratings: built.report?.ratings.length,

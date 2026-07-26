@@ -148,13 +148,13 @@ export async function getGlobalReport(ffeCodeValue: string, storage: FideStorage
     });
     report.statistics = { ...report.statistics, ...careerStatistics(report.careerEvents) };
   }
-  return { report, metadata, stale: !!report && (report.version !== 3 || Date.parse(report.staleAt) <= Date.now()) };
+  return { report, metadata, stale: !!report && (report.version !== 4 || Date.parse(report.staleAt) <= Date.now()) };
 }
 
 export async function queueGlobalReport(ffeCodeValue: string, storage: FideStorage = fideStorage(), now = new Date()) {
   const ffeCode = ffeCodeValue.toUpperCase();
   const existing = await getGlobalReport(ffeCode, storage);
-  if (existing.report?.version === 3 && !existing.stale && existing.metadata?.status === "ready") return { state: "ready" as const, ...existing };
+  if (existing.report?.version === 4 && !existing.stale && existing.metadata?.status === "ready") return { state: "ready" as const, ...existing };
   if (
     existing.metadata?.status === "retry_wait"
     && existing.metadata.nextRetryAt
@@ -325,7 +325,7 @@ export async function buildGlobalReport(
     const client = dependencies.client ?? new FideClient({ storage: fide, logger });
 
     let fidePlayer = await readCheckpoint("fide_profile");
-    if (!fidePlayer || (existing.report?.version !== 3 && (!fidePlayer.birthYear || !fidePlayer.federationCode))) {
+    if (!fidePlayer || (existing.report?.version !== 4 && (!fidePlayer.birthYear || !fidePlayer.federationCode))) {
       await persistMetadata({ currentStage: "fide_profile", currentStep: "Lecture du profil FIDE officiel" });
       const url = `https://ratings.fide.com/profile/${link.fideId}?eloscope=${now.toISOString().slice(0, 10)}`;
       const response = await client.html(url, {
@@ -340,7 +340,7 @@ export async function buildGlobalReport(
       await saveCheckpoint("fide_profile", fidePlayer, isObject as (candidate: unknown) => candidate is FidePlayer);
       await fide.setJSON(`fide/players/${link.fideId}/profile.json`, fidePlayer);
     }
-    if (existing.report?.version !== 3 || fidePlayer.ratings.length < 100) {
+    if (existing.report?.version !== 4 || fidePlayer.ratings.length < 100) {
       try {
         const history = await client.json<FideChartRow[]>(`https://ratings.fide.com/a_chart_data.phtml?event=${link.fideId}&period=0`, {
           cacheKey: `fide/players/${link.fideId}/rating-history-all.json`,
@@ -383,12 +383,14 @@ export async function buildGlobalReport(
     await savePlayerProfiles(players, [profile]);
     await writeValidated(fide, checkpointKey(ffeCode, "ratings"), fidePlayer.ratings, attemptId, isArray as (candidate: unknown) => candidate is FidePlayer["ratings"]);
 
-    let games = await readCheckpoint("calculations") ?? existing.report?.games ?? [];
+    let games = existing.report?.version === 4
+      ? await readCheckpoint("calculations") ?? existing.report.games
+      : [];
     const activePeriods = [...new Map(fidePlayer.ratings
       .filter((item) => (item.games ?? 0) > 0)
       .sort((a, b) => b.period.localeCompare(a.period))
       .map((item) => [`${item.period}:${item.ratingType}`, item])).values()];
-    const progressKey = checkpointKey(ffeCode, "calculation-progress");
+    const progressKey = checkpointKey(ffeCode, "calculation-progress-v4");
     const calculationProgress = await fide.getJSON<CalculationProgress>(progressKey) ?? {
       completed: [...new Set(games.map((game) => `${game.ratingPeriod}:${game.ratingType}`))],
       failures: {},
@@ -479,7 +481,7 @@ export async function buildGlobalReport(
     const statistics = { ...computeStatistics(fidePlayer.ratings, games, now), ...careerStatistics(careerEvents) };
     await saveCheckpoint("statistics", statistics, isObject as (candidate: unknown) => candidate is PlayerGlobalReport["statistics"]);
     const report: PlayerGlobalReport = {
-      version: 3,
+      version: 4,
       ffeCode,
       fideId: link.fideId,
       player: fidePlayer,
@@ -555,7 +557,7 @@ export async function buildGlobalReport(
         const statistics = checkpointStatistics ?? computeStatistics(fidePlayer.ratings, availableGames, now);
         const years = [...new Set(fidePlayer.ratings.map((item) => Number(item.period.slice(0, 4))).filter(Boolean))].sort((a, b) => b - a);
         partialReport = {
-          version: 3,
+          version: 4,
           ffeCode,
           fideId: fidePlayer.fideId,
           player: fidePlayer,

@@ -3,8 +3,14 @@ import type { FideRatedGame, FideRatingType } from "../types";
 import { inferEventType } from "./event-report";
 import { normalizeFideId } from "../identity/normalize-fide-id";
 
-const resultValue = (value: string): 0 | 0.5 | 1 | undefined =>
-  /(^|\s)1(\s|$)/.test(value) ? 1 : /0\.5|½/.test(value) ? 0.5 : /(^|\s)0(\s|$)/.test(value) ? 0 : undefined;
+const resultValue = (value: string): 0 | 0.5 | 1 | undefined => {
+  const normalized = value.replace(",", ".").trim();
+  const numeric = Number(normalized);
+  if (numeric === 1) return 1;
+  if (numeric === 0.5 || normalized.includes("½")) return 0.5;
+  if (numeric === 0) return 0;
+  return undefined;
+};
 
 export function parseFideCalculations(
   html: string,

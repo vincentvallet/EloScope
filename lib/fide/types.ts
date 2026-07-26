@@ -109,7 +109,7 @@ export type GlobalReportStatus =
   | "failed";
 
 export type PlayerGlobalReport = {
-  version: 1 | 2 | 3;
+  version: 1 | 2 | 3 | 4;
   ffeCode: string;
   fideId: string;
   player: FidePlayer;
