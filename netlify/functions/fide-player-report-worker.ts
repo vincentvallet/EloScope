@@ -3,6 +3,8 @@ import { catalogStorage } from "../../lib/ffe-catalog/storage";
 import { ensureInternalSecret } from "../../lib/ffe-catalog/sync";
 import { buildGlobalReport } from "../../lib/fide/report";
 
+const MAX_PROGRESSIVE_HOPS = 120;
+
 export default async function fidePlayerReportWorker(request: Request) {
   const secret = await ensureInternalSecret(catalogStorage());
   if (request.headers.get("x-eloscope-sync-secret") !== secret) {
@@ -29,7 +31,7 @@ export default async function fidePlayerReportWorker(request: Request) {
     nextRetryAt: result.metadata?.nextRetryAt,
   }));
   const hop = Math.max(0, body.hop ?? 0);
-  if (result.state === "queued" && hop < 30) {
+  if (result.state === "queued" && hop < MAX_PROGRESSIVE_HOPS) {
     const response = await fetch(new URL("/.netlify/functions/fide-player-report-worker", request.url), {
       method: "POST",
       headers: { "content-type": "application/json", "x-eloscope-sync-secret": secret },
