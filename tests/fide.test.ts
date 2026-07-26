@@ -225,7 +225,10 @@ describe("cache, flux et résilience", () => {
         });
       },
     });
-    const resumed = await buildGlobalReport("A12345", { fide, players, client: healthyClient });
+    let resumed = await buildGlobalReport("A12345", { fide, players, client: healthyClient });
+    for (let batch = 0; resumed.state === "queued" && batch < 5; batch += 1) {
+      resumed = await buildGlobalReport("A12345", { fide, players, client: healthyClient });
+    }
     expect(resumed).toMatchObject({ state: "ready", metadata: { progress: 100, retryCount: 0 } });
     expect(profileRequests).toBe(0);
   });

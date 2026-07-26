@@ -53,7 +53,10 @@ type Checkpoints = {
 
 type Logger = (entry: Record<string, unknown>) => void;
 const defaultLogger: Logger = (entry) => console.log(JSON.stringify(entry));
-const CALCULATION_BATCH_SIZE = 6;
+// Une page de calcul FIDE peut mobiliser les deux tentatives de 15 s.
+// Un seul mois par invocation garde chaque worker Netlify court, tandis que
+// le worker chaîné reprend immédiatement au checkpoint suivant.
+const CALCULATION_BATCH_SIZE = 1;
 type CalculationProgress = {
   completed: string[];
   failures: Record<string, number>;
