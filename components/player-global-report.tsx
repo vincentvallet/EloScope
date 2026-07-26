@@ -194,8 +194,14 @@ function Events({ report }: { report: PlayerGlobalReport }) {
 }
 
 function Games({ report }: { report: PlayerGlobalReport }) {
-  return report.games.length ? <div className="rated-games">{report.games.slice(0, 50).map((game) => <Card key={game.id}><strong>{game.opponentName}</strong><span>{game.result ?? "—"} · {game.ratingType} · {game.ratingPeriod}</span><small>{game.eventName}</small></Card>)}</div> :
-    <EmptyState title="Aucune partie classée détaillée disponible">EloScope distingue les résultats homologués des parties PGN : aucune notation de partie n’est inventée.</EmptyState>;
+  const [visible, setVisible] = useState(100);
+  if (!report.games.length) return <EmptyState title="Aucune partie classée détaillée disponible">EloScope distingue les résultats homologués des parties PGN : aucune notation de partie n’est inventée.</EmptyState>;
+  const resultLabel = (result?: 0 | 0.5 | 1) => result === 1 ? "Victoire" : result === 0.5 ? "Nulle" : result === 0 ? "Défaite" : "Résultat non publié";
+  return <div>
+    <p className="report-empty-note">{report.games.length} partie(s) classée(s) actuellement chargée(s) sur la carrière officielle.</p>
+    <div className="rated-games">{report.games.slice(0, visible).map((game) => <Card key={game.id}><strong>{game.opponentName}</strong><span>{resultLabel(game.result)} · {game.color === "white" ? "Blancs" : game.color === "black" ? "Noirs" : "Couleur inconnue"} · {game.ratingType} · {game.ratingPeriod}</span><small>{game.eventName} · Elo adverse {game.opponentRating ?? "NC"}</small></Card>)}</div>
+    {visible < report.games.length && <button className="button" onClick={() => setVisible((count) => count + 100)}>Afficher 100 parties supplémentaires</button>}
+  </div>;
 }
 
 function Compare({ ffeCode }: { ffeCode: string }) {

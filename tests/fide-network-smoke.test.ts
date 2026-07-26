@@ -19,7 +19,7 @@ describe.skipIf(process.env.FIDE_NETWORK_SMOKE !== "1")("smoke réseau FFE/FIDE 
     expect(normalizeFideId(profile.fideId!)).toBe("637610");
     const isolatedStorage = new MemoryFideStorage();
     const fideClient = new FideClient({ storage: isolatedStorage });
-    const response = await fideClient.html("https://ratings.fide.com/profile/637610", {
+    const response = await fideClient.html(`https://ratings.fide.com/profile/637610?smoke=${Date.now()}`, {
       cacheKey: "fide/players/637610/profile-html.json",
     });
     const fide = parseFideProfile(response.body, "637610", response.fetchedAt);
@@ -46,12 +46,22 @@ describe.skipIf(process.env.FIDE_NETWORK_SMOKE !== "1")("smoke réseau FFE/FIDE 
       tournamentRef: "40880",
       identityConfidence: "strong_name_match",
     });
-    const built = await buildGlobalReport("W16194", {
-      fide: isolatedStorage,
-      players,
-      client: fideClient,
-    });
+    let built = await buildGlobalReport("W16194", { fide: isolatedStorage, players, client: fideClient });
+    for (let batch = 0; built.state === "queued" && batch < 30; batch += 1) {
+      built = await buildGlobalReport("W16194", { fide: isolatedStorage, players, client: fideClient });
+    }
     expect(built).toMatchObject({ state: "ready", report: { ffeCode: "W16194", fideId: "637610" } });
+    expect(built.report?.coverage.oldestPeriod).toBe("2004-07-01");
+    expect(built.report?.games.length).toBeGreaterThan(100);
+    console.info(JSON.stringify({
+      event: "fide_network_smoke_summary",
+      ratings: built.report?.ratings.length,
+      oldestPeriod: built.report?.coverage.oldestPeriod,
+      newestPeriod: built.report?.coverage.newestPeriod,
+      careerEvents: built.report?.careerEvents?.length,
+      ratedGames: built.report?.games.length,
+      participations: built.report?.participations.length,
+    }));
     expect(built.report?.careerEvents?.length).toBeGreaterThan(0);
     expect(built.report?.careerEvents?.some((event) => !event.ffeTournamentRef)).toBe(true);
     expect((await isolatedStorage.list()).some((key) => key === "fide/player-reports/W16194/report.json")).toBe(true);

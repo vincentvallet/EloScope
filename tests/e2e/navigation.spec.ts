@@ -54,7 +54,7 @@ test("simplifie la navigation et réserve Paramètres aux routes de rapport", as
   await page.goto("/tournois");
   await expect(page.getByRole("heading", { name: "Trouver un tournoi" })).toBeVisible();
   const navigation = page.getByRole("navigation", { name: "Navigation principale" });
-  await expect(navigation.getByRole("link", { name: "Recherche" })).toHaveClass(/active/);
+  await expect(navigation.getByRole("link", { name: "Tournois" })).toHaveClass(/active/);
   await expect(navigation.getByRole("link", { name: "Lien FFE" })).toHaveCount(0);
   await expect(navigation.getByRole("link", { name: "Paramètres" })).toHaveCount(0);
   await expect(page.getByRole("link", { name: /Importer un tournoi/i })).toHaveCount(0);
@@ -74,7 +74,7 @@ test("simplifie la navigation et réserve Paramètres aux routes de rapport", as
   await expect(navigation.getByRole("link", { name: "Paramètres" })).toHaveCount(0);
 });
 
-test("valide le lien sur Recherche et ouvre le cache sans second clic", async ({ page }) => {
+test("valide le lien sur Tournois et ouvre le cache sans second clic", async ({ page }) => {
   await page.goto("/tournois");
   await expect(page.getByRole("heading", { name: "Lien du tournoi FFE" })).toBeVisible();
   const input = page.getByRole("textbox", { name: "Lien du tournoi FFE" });
@@ -115,7 +115,7 @@ test("conserve la navigation mobile sans entrée obsolète", async ({ page, isMo
   test.skip(!isMobile, "Navigation mobile uniquement");
   await page.goto("/tournois");
   const mobile = page.getByRole("navigation", { name: "Navigation mobile" });
-  await expect(mobile.getByRole("link", { name: "Recherche" })).toBeVisible();
+  await expect(mobile.getByRole("link", { name: "Tournois" })).toBeVisible();
   await expect(mobile.getByRole("link", { name: "Lien FFE" })).toHaveCount(0);
   await page.getByRole("button", { name: "Ouvrir le menu" }).click();
   await expect(page.getByRole("navigation", { name: "Navigation principale" }).getByRole("link", { name: "Paramètres" })).toHaveCount(0);

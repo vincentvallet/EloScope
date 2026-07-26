@@ -300,7 +300,7 @@ export function EloScopeApp() {
     || (!!routeReportRef && sharedReportRef(report) === routeReportRef)
   );
   const navigation = [
-    { href: "/tournois", label: "Recherche", icon: Search, active: pathname === "/" || pathname.startsWith("/tournois") },
+    { href: "/tournois", label: "Tournois", icon: Search, active: pathname === "/" || pathname.startsWith("/tournois") },
     { href: "/joueurs", label: "Joueurs", icon: Users, active: pathname === "/joueurs" || /^\/joueurs\/[A-Z]\d{5}$/i.test(pathname) },
     ...(report ? [
       { href: `${reportBase(report)}/vue-ensemble`, label: "Vue d’ensemble", icon: Trophy, active: pathname.endsWith("/vue-ensemble") },
@@ -411,7 +411,7 @@ function TournamentHeader({ report, active }: { report: NormalizedTournament; ac
   const tabs = [["vue-ensemble", "Vue d’ensemble"], ["classement", "Classement"], ["clubs", "Clubs"], ["rondes", "Rondes"], ["parametres", "Paramètres"]];
   const base = reportBase(report);
   return <>
-    <div className="breadcrumbs"><a href="/tournois">Recherche</a><span>/</span><strong>{report.report.title}</strong></div>
+    <div className="breadcrumbs"><a href="/tournois">Tournois</a><span>/</span><strong>{report.report.title}</strong></div>
     <div className="tournament-head">
       <div className="tournament-emblem"><Trophy/></div>
       <div><span className="status-pill success"><Check/>Source FFE</span><h1>{report.report.title}</h1><p><CalendarDays/>Données après la ronde {report.report.currentRound} sur {report.report.totalRounds}</p><small>Rapport généré le {new Date(report.report.importedAt).toLocaleString("fr-FR", { timeZone: "Europe/Paris" })}</small></div>

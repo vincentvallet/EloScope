@@ -50,7 +50,27 @@ export class FideClient {
     }
   }
 
-  private async request(url: URL, parentSignal?: AbortSignal, extraHeaders: Record<string, string> = {}) {
+  async json<T>(urlValue: string, options: { cacheKey?: string; ttlMs?: number; signal?: AbortSignal; headers?: Record<string, string> } = {}) {
+    const url = new URL(urlValue);
+    if (url.protocol !== "https:" || !allowedHosts.has(url.hostname)) throw new FideSourceError("NETWORK", "Source FIDE non autorisée", url.toString());
+    const cacheKey = options.cacheKey ?? `fide/http/${encodeURIComponent(url.pathname + url.search)}.json`;
+    const cached = await readFideCache<T>(this.storage, cacheKey);
+    if (cached) return { value: cached.value, source: "cache" as const, fetchedAt: cached.fetchedAt };
+    const task = this.queue.then(() => this.request(url, options.signal, options.headers, true));
+    this.queue = task.then(() => undefined, () => undefined);
+    try {
+      const body = await task;
+      const value = JSON.parse(body.replace(/^\uFEFF|^ï»¿/, "")) as T;
+      const saved = await writeFideCache(this.storage, cacheKey, value, url.toString(), options.ttlMs ?? 24 * 60 * 60_000);
+      return { value, source: "network" as const, fetchedAt: saved.fetchedAt };
+    } catch (error) {
+      const stale = await readFideCache<T>(this.storage, cacheKey, true);
+      if (stale) return { value: stale.value, source: "stale-cache" as const, fetchedAt: stale.fetchedAt };
+      throw classifyFideError(error);
+    }
+  }
+
+  private async request(url: URL, parentSignal?: AbortSignal, extraHeaders: Record<string, string> = {}, expectJson = false) {
     const retries = this.options.retries ?? 1;
     for (let attempt = 0; attempt <= retries; attempt += 1) {
       this.breaker.assertAvailable();
@@ -78,7 +98,7 @@ export class FideClient {
           throw new FideSourceError(code, `FIDE HTTP ${response.status}`, url.toString(), response.status);
         }
         const type = response.headers.get("content-type") ?? "";
-        if (!/text\/html|application\/xhtml\+xml/i.test(type)) {
+        if (expectJson ? !/application\/json|text\/html/i.test(type) : !/text\/html|application\/xhtml\+xml/i.test(type)) {
           throw new FideSourceError("UNEXPECTED_HTML", "Type de réponse FIDE inattendu", url.toString(), response.status);
         }
         const declared = Number(response.headers.get("content-length"));

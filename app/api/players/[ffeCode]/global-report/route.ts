@@ -12,6 +12,10 @@ export async function GET(request: Request, context: { params: Promise<{ ffeCode
     ? "partial_ready"
     : result.metadata?.status ?? (result.stale ? "partial_ready" : "ready");
   return NextResponse.json({ state, ...result }, {
-    headers: { "cache-control": "public, max-age=300, stale-while-revalidate=86400" },
+    headers: {
+      "cache-control": state === "ready" && !result.stale
+        ? "public, max-age=30, stale-while-revalidate=300"
+        : "no-store",
+    },
   });
 }

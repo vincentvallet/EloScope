@@ -203,9 +203,9 @@ describe("cache, flux et résilience", () => {
     });
     const first = await buildGlobalReport("A12345", { fide, players, client: failingClient });
     expect(first).toMatchObject({
-      state: "retry_wait",
-      report: { ffeCode: "A12345", fideId: "990001", coverage: { completeYears: [] } },
-      metadata: { progress: 35, lastSuccessfulStage: "ratings", retryCount: 1, lastErrorCode: "NETWORK" },
+      state: "queued",
+      report: { version: 3, ffeCode: "A12345", fideId: "990001" },
+      metadata: { progress: 95, lastSuccessfulStage: "report", retryCount: 0 },
     });
     expect(await fide.getJSON("fide/player-reports/A12345/checkpoints/ratings.json")).not.toBeNull();
 
