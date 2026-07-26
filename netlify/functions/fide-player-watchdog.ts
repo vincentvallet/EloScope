@@ -32,4 +32,4 @@ export default async function fidePlayerWatchdog(_request: Request, context: Con
   console.log(JSON.stringify({ event: "fide_watchdog_idle", cachedReports: keys.length }));
 }
 
-export const config: Config = { schedule: "27 */6 * * *" };
+export const config: Config = { schedule: "*/5 * * * *" };

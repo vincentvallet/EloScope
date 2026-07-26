@@ -158,6 +158,7 @@ export type PlayerGlobalReport = {
     newestPeriod?: string;
     fideAvailable: boolean;
     ffeComplete: boolean;
+    unavailableCalculationPeriods?: number;
   };
   provenance: Array<{ source: "FFE" | "FIDE"; url: string; fetchedAt: string; note: string }>;
   generatedAt: string;

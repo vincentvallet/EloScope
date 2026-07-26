@@ -59,6 +59,7 @@ const CALCULATION_BATCH_SIZE = 2;
 type CalculationProgress = {
   completed: string[];
   failures: Record<string, number>;
+  unavailable?: string[];
   updatedAt: string;
 };
 
@@ -391,8 +392,10 @@ export async function buildGlobalReport(
     const calculationProgress = await fide.getJSON<CalculationProgress>(progressKey) ?? {
       completed: [...new Set(games.map((game) => `${game.ratingPeriod}:${game.ratingType}`))],
       failures: {},
+      unavailable: [],
       updatedAt: now.toISOString(),
     };
+    calculationProgress.unavailable ??= [];
     const pendingPeriods = activePeriods
       .filter((item) => !calculationProgress.completed.includes(`${item.period}:${item.ratingType}`))
       .sort((a, b) =>
@@ -421,6 +424,10 @@ export async function buildGlobalReport(
           delete calculationProgress.failures[periodKey];
         } catch (error) {
           calculationProgress.failures[periodKey] = (calculationProgress.failures[periodKey] ?? 0) + 1;
+          if (calculationProgress.failures[periodKey] >= 3) {
+            calculationProgress.completed.push(periodKey);
+            calculationProgress.unavailable.push(periodKey);
+          }
           logger({ event: "fide_calculation_period_deferred", ffeCode, fideId: link.fideId, periodKey, error: classifyFideError(error).code });
         }
         calculationProgress.updatedAt = new Date().toISOString();
@@ -490,10 +497,18 @@ export async function buildGlobalReport(
         newestPeriod: fidePlayer.ratings[0]?.period,
         fideAvailable: true,
         ffeComplete: !!backfill?.completedAt && backfill.failedTournamentCount === 0,
+        unavailableCalculationPeriods: calculationProgress.unavailable.length,
       },
       provenance: [
         { source: "FFE", url: profile.sourceUrl ?? "https://www.echecs.asso.fr", fetchedAt: profile.fetchedAt, note: "Identité, club et participations publiées." },
-        { source: "FIDE", url: fidePlayer.sourceUrl, fetchedAt: fidePlayer.fetchedAt, note: "Classements officiels mensuels ; aucune donnée personnelle sensible conservée." },
+        {
+          source: "FIDE",
+          url: fidePlayer.sourceUrl,
+          fetchedAt: fidePlayer.fetchedAt,
+          note: calculationProgress.unavailable.length
+            ? `Classements officiels mensuels ; ${calculationProgress.unavailable.length} période(s) de calcul indisponible(s) après trois tentatives.`
+            : "Classements officiels mensuels et périodes de calcul disponibles.",
+        },
       ],
       generatedAt: now.toISOString(),
       staleAt: new Date(now.getTime() + 24 * 60 * 60_000).toISOString(),
@@ -505,7 +520,9 @@ export async function buildGlobalReport(
       status: calculationsComplete ? "ready" : "queued",
       currentStage: "report",
       currentStep: calculationsComplete
-        ? "Rapport de carrière disponible"
+        ? calculationProgress.unavailable.length
+          ? `Rapport de carrière disponible · ${calculationProgress.unavailable.length} période(s) FIDE indisponible(s)`
+          : "Rapport de carrière disponible"
         : `Rapport disponible · ${activePeriods.length - remainingCalculationPeriods}/${activePeriods.length} périodes de parties chargées`,
       progress: calculationsComplete ? 100 : Math.max(50, Math.round(50 + 45 * (activePeriods.length - remainingCalculationPeriods) / Math.max(1, activePeriods.length))),
       completedYears: recentYears,
