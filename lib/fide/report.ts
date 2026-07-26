@@ -55,7 +55,7 @@ type Logger = (entry: Record<string, unknown>) => void;
 const defaultLogger: Logger = (entry) => console.log(JSON.stringify(entry));
 // Les réponses réseau ont un délai dur ; un petit lot évite de relire tous
 // les checkpoints Blob pour chaque mois tout en sauvegardant chaque période.
-const CALCULATION_BATCH_SIZE = 6;
+const CALCULATION_BATCH_SIZE = 2;
 type CalculationProgress = {
   completed: string[];
   failures: Record<string, number>;
