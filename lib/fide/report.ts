@@ -10,6 +10,7 @@ import { parseFideProfile } from "./parsers/profile";
 import { parseFideCalculations } from "./parsers/calculations";
 import { parseFideEventReport } from "./parsers/event-report";
 import { computeStatistics, deterministicSummary } from "./statistics";
+import { buildPlayerCareerEvents, careerStatistics } from "./career-events";
 import { fideStorage } from "./storage";
 import type { FideStorage } from "./storage/interface";
 import type {
@@ -126,13 +127,25 @@ export async function getGlobalReport(ffeCodeValue: string, storage: FideStorage
     storage.getJSON<PlayerReportMetadata>(key(ffeCode, "metadata")),
   ]);
   const metadata = normalizeMetadata(rawMetadata, ffeCode);
-  return { report, metadata, stale: !!report && Date.parse(report.staleAt) <= Date.now() };
+  if (report && !report.careerEvents) {
+    report.careerEvents = buildPlayerCareerEvents({
+      ffeCode,
+      fideId: report.fideId,
+      displayName: report.player.name,
+      games: report.games,
+      events: report.events,
+      participations: report.participations,
+      fetchedAt: report.generatedAt,
+    });
+    report.statistics = { ...report.statistics, ...careerStatistics(report.careerEvents) };
+  }
+  return { report, metadata, stale: !!report && (report.version !== 2 || Date.parse(report.staleAt) <= Date.now()) };
 }
 
 export async function queueGlobalReport(ffeCodeValue: string, storage: FideStorage = fideStorage(), now = new Date()) {
   const ffeCode = ffeCodeValue.toUpperCase();
   const existing = await getGlobalReport(ffeCode, storage);
-  if (existing.report && !existing.stale && existing.metadata?.status === "ready") return { state: "ready" as const, ...existing };
+  if (existing.report?.version === 2 && !existing.stale && existing.metadata?.status === "ready") return { state: "ready" as const, ...existing };
   if (
     existing.metadata?.status === "retry_wait"
     && existing.metadata.nextRetryAt
@@ -303,7 +316,7 @@ export async function buildGlobalReport(
     const client = dependencies.client ?? new FideClient({ storage: fide, logger });
 
     let fidePlayer = await readCheckpoint("fide_profile");
-    if (!fidePlayer) {
+    if (!fidePlayer || (existing.report?.version !== 2 && (!fidePlayer.birthYear || !fidePlayer.federationCode))) {
       await persistMetadata({ currentStage: "fide_profile", currentStep: "Lecture du profil FIDE officiel" });
       const url = `https://ratings.fide.com/profile/${link.fideId}`;
       const response = await client.html(url, {
@@ -318,15 +331,27 @@ export async function buildGlobalReport(
       await saveCheckpoint("fide_profile", fidePlayer, isObject as (candidate: unknown) => candidate is FidePlayer);
       await fide.setJSON(`fide/players/${link.fideId}/profile.json`, fidePlayer);
     }
+    profile = {
+      ...profile,
+      fideId: fidePlayer.fideId,
+      federationCode: fidePlayer.federationCode,
+      federationName: fidePlayer.federationName,
+      federationFlag: fidePlayer.federationFlag,
+      birthYear: fidePlayer.birthYear,
+      fideTitle: fidePlayer.fideTitle,
+      fideTitleLabel: fidePlayer.fideTitleLabel,
+      otherFideTitles: fidePlayer.otherFideTitles,
+    };
+    await savePlayerProfiles(players, [profile]);
     if (!(await readCheckpoint("ratings"))) {
       await saveCheckpoint("ratings", fidePlayer.ratings, isArray as (candidate: unknown) => candidate is FidePlayer["ratings"]);
     }
 
-    let games = await readCheckpoint("calculations");
+    let games = existing.report?.version !== 2 ? null : await readCheckpoint("calculations");
     if (!games) {
       await persistMetadata({ currentStage: "calculations", currentStep: "Lecture des calculs FIDE récents" });
       const activePeriods = fidePlayer.ratings.filter((item) => (item.games ?? 0) > 0)
-        .sort((a, b) => b.period.localeCompare(a.period)).slice(0, 3);
+        .sort((a, b) => b.period.localeCompare(a.period));
       games = [];
       let lastError: unknown;
       for (const item of activePeriods) {
@@ -343,18 +368,18 @@ export async function buildGlobalReport(
           });
           games.push(...parseFideCalculations(calculation.body, link.fideId, item.period, item.ratingType));
         } catch (error) {
-          lastError = error;
+          lastError ??= error;
         }
       }
       if (activePeriods.length && !games.length && lastError) throw lastError;
       await saveCheckpoint("calculations", games, isArray as (candidate: unknown) => candidate is FideRatedGame[]);
     }
 
-    let events = await readCheckpoint("events");
+    let events = existing.report?.version !== 2 ? null : await readCheckpoint("events");
     if (!events) {
       await persistMetadata({ currentStage: "events", currentStep: "Lecture des rapports de compétitions FIDE" });
       events = [];
-      const eventKeys = [...new Map(games.filter((game) => game.eventId).map((game) => [`${game.eventId}:${game.ratingType}`, game])).values()].slice(0, 3);
+      const eventKeys = [...new Map(games.filter((game) => game.eventId).map((game) => [`${game.eventId}:${game.ratingType}`, game])).values()];
       for (const game of eventKeys) {
         const t = game.ratingType === "rapid" ? 1 : game.ratingType === "blitz" ? 2 : 0;
         const eventUrl = `https://ratings.fide.com/report.phtml?event=${game.eventId}&t=${t}`;
@@ -393,30 +418,42 @@ export async function buildGlobalReport(
         participations: participations.filter((item) => item.year === year),
       });
     }
+    const reportParticipations = participations.map((item) => ({
+      tournamentRef: item.tournamentRef,
+      title: item.tournamentTitle,
+      date: item.tournamentStartDate,
+      year: item.year,
+      ratingType: item.ratingType,
+      score: item.score,
+      playedRounds: item.playedRounds,
+      rank: item.finalRank,
+      sourceUrl: item.sourceUrl,
+    }));
+    const careerEvents = buildPlayerCareerEvents({
+      ffeCode,
+      fideId: link.fideId,
+      displayName: profile.displayName,
+      games,
+      events,
+      participations: reportParticipations,
+      fetchedAt: now.toISOString(),
+    });
     let statistics = await readCheckpoint("statistics");
     if (!statistics) {
       statistics = computeStatistics(fidePlayer.ratings, games, now);
-      await saveCheckpoint("statistics", statistics, isObject as (candidate: unknown) => candidate is PlayerGlobalReport["statistics"]);
     }
+    statistics = { ...statistics, ...careerStatistics(careerEvents) };
+    await saveCheckpoint("statistics", statistics, isObject as (candidate: unknown) => candidate is PlayerGlobalReport["statistics"]);
     const report: PlayerGlobalReport = {
-      version: 1,
+      version: 2,
       ffeCode,
       fideId: link.fideId,
       player: fidePlayer,
       ratings: fidePlayer.ratings,
       events,
       games,
-      participations: participations.map((item) => ({
-        tournamentRef: item.tournamentRef,
-        title: item.tournamentTitle,
-        date: item.tournamentStartDate,
-        year: item.year,
-        ratingType: item.ratingType,
-        score: item.score,
-        playedRounds: item.playedRounds,
-        rank: item.finalRank,
-        sourceUrl: item.sourceUrl,
-      })),
+      participations: reportParticipations,
+      careerEvents,
       statistics,
       summary: deterministicSummary(statistics),
       coverage: {
@@ -469,7 +506,7 @@ export async function buildGlobalReport(
         const statistics = checkpointStatistics ?? computeStatistics(fidePlayer.ratings, availableGames, now);
         const years = [...new Set(fidePlayer.ratings.map((item) => Number(item.period.slice(0, 4))).filter(Boolean))].sort((a, b) => b - a);
         partialReport = {
-          version: 1,
+          version: 2,
           ffeCode,
           fideId: fidePlayer.fideId,
           player: fidePlayer,
@@ -487,6 +524,25 @@ export async function buildGlobalReport(
             rank: item.finalRank,
             sourceUrl: item.sourceUrl,
           })),
+          careerEvents: buildPlayerCareerEvents({
+            ffeCode,
+            fideId: fidePlayer.fideId,
+            displayName: profile.displayName,
+            games: availableGames,
+            events: availableEvents,
+            participations: availableParticipations.map((item) => ({
+              tournamentRef: item.tournamentRef,
+              title: item.tournamentTitle,
+              date: item.tournamentStartDate,
+              year: item.year,
+              ratingType: item.ratingType,
+              score: item.score,
+              playedRounds: item.playedRounds,
+              rank: item.finalRank,
+              sourceUrl: item.sourceUrl,
+            })),
+            fetchedAt: now.toISOString(),
+          }),
           statistics,
           summary: deterministicSummary(statistics),
           coverage: {

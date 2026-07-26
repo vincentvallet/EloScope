@@ -16,6 +16,13 @@ export type FidePlayer = {
   name: string;
   federation?: string;
   title?: string;
+  federationCode?: string;
+  federationName?: string;
+  federationFlag?: string;
+  birthYear?: number;
+  fideTitle?: import("./federations").FidePlayerTitle;
+  fideTitleLabel?: string;
+  otherFideTitles?: string[];
   active?: boolean;
   standardRating?: number;
   rapidRating?: number;
@@ -23,6 +30,39 @@ export type FidePlayer = {
   ratings: FideRatingPoint[];
   sourceUrl: string;
   fetchedAt: string;
+};
+
+export type PlayerCareerEvent = {
+  canonicalEventId: string;
+  playerKey: string;
+  ffeCode?: string;
+  fideId?: string;
+  displayName: string;
+  normalizedName: string;
+  startDate?: string;
+  endDate?: string;
+  ratingPeriod?: string;
+  year?: number;
+  eventType: "individual_tournament" | "team_match" | "cup" | "rated_event" | "unknown";
+  ratingType: FideRatingType | "unknown";
+  ffeTournamentRef?: string;
+  fideEventId?: string;
+  city?: string;
+  country?: string;
+  score?: number;
+  ratedGames?: number;
+  averageOpponentRating?: number;
+  performanceRating?: number;
+  officialRatingChange?: number;
+  finalRank?: number;
+  sources: Array<{
+    type: "ffe_catalog" | "ffe_results" | "fide_calculations" | "fide_event_report";
+    url: string;
+    fetchedAt: string;
+  }>;
+  catalogStatus: "matched" | "not_matched" | "not_applicable";
+  reportStatus: "ready" | "available_to_generate" | "insufficient_data" | "not_generated";
+  matchConfidence?: "exact" | "strong" | "probable" | "unmatched";
 };
 
 export type FideRatedGame = {
@@ -69,7 +109,7 @@ export type GlobalReportStatus =
   | "failed";
 
 export type PlayerGlobalReport = {
-  version: 1;
+  version: 1 | 2;
   ffeCode: string;
   fideId: string;
   player: FidePlayer;
@@ -87,6 +127,7 @@ export type PlayerGlobalReport = {
     rank?: number;
     sourceUrl: string;
   }>;
+  careerEvents?: PlayerCareerEvent[];
   statistics: {
     ratedGames: number;
     wins: number;
@@ -99,6 +140,15 @@ export type PlayerGlobalReport = {
     peakRapid?: number;
     peakBlitz?: number;
     expectedScore?: number;
+    knownEvents?: number;
+    individualEvents?: number;
+    teamEvents?: number;
+    cupEvents?: number;
+    matchedCatalogEvents?: number;
+    unmatchedFideEvents?: number;
+    officialRatingChange?: number;
+    averagePerformance?: number;
+    activityByYear?: Record<string, number>;
   };
   summary: string[];
   coverage: {

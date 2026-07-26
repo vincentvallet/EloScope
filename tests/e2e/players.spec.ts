@@ -3,7 +3,7 @@ import { expect, test } from "@playwright/test";
 const profile = {
   ffeCode: "A12345", ffeInternalId: "101", fideId: "990001",
   lastName: "DUPONT", firstName: "Alice", displayName: "Alice DUPONT",
-  normalizedName: "ALICE DUPONT", federation: "FRA", currentClubName: "Échiquier Exemple",
+  normalizedName: "ALICE DUPONT", federation: "FRA", federationCode: "FRA", federationName: "France", federationFlag: "🇫🇷", birthYear: 1994, fideTitle: "WFM", fideTitleLabel: "Maître FIDE féminin", currentClubName: "Échiquier Exemple",
   standardRating: 1720, rapidRating: 1680, blitzRating: 1600, category: "SenF",
   sourceUrl: "https://www.echecs.asso.fr/FicheJoueur.aspx?Id=101", fetchedAt: "2026-01-01T00:00:00.000Z",
 };
@@ -17,11 +17,12 @@ const participation = {
   sourceUrl: "https://www.echecs.asso.fr/FicheTournoi.aspx?Ref=67414", indexedAt: "2026-01-01T00:00:00.000Z",
 };
 const globalReport = {
-  version: 1, ffeCode: "A12345", fideId: "990001",
+  version: 2, ffeCode: "A12345", fideId: "990001",
   player: {
-    fideId: "990001", name: "Alice MARTIN", federation: "France", title: "WFM", active: true,
+    fideId: "990001", name: "Alice MARTIN", federation: "France", title: "WFM", federationCode: "FRA", federationName: "France", federationFlag: "🇫🇷", birthYear: 1994, fideTitle: "WFM", fideTitleLabel: "Maître FIDE féminin", active: true,
     standardRating: 1812, rapidRating: 1760, blitzRating: 1695,
     ratings: [
+      { fideId: "990001", period: "2015-07-01", ratingType: "standard", rating: 1500, games: 3, isPublishedOfficialRating: true, sourceUrl: "https://ratings.fide.com/profile/990001" },
       { fideId: "990001", period: "2025-07-01", ratingType: "standard", rating: 1750, games: 3, isPublishedOfficialRating: true, sourceUrl: "https://ratings.fide.com/profile/990001" },
       { fideId: "990001", period: "2026-07-01", ratingType: "standard", rating: 1812, games: 4, isPublishedOfficialRating: true, sourceUrl: "https://ratings.fide.com/profile/990001" },
       { fideId: "990001", period: "2026-07-01", ratingType: "rapid", rating: 1760, games: 2, isPublishedOfficialRating: true, sourceUrl: "https://ratings.fide.com/profile/990001" },
@@ -29,12 +30,17 @@ const globalReport = {
     sourceUrl: "https://ratings.fide.com/profile/990001", fetchedAt: "2026-07-01T00:00:00.000Z",
   },
   ratings: [
+    { fideId: "990001", period: "2015-07-01", ratingType: "standard", rating: 1500, games: 3, isPublishedOfficialRating: true, sourceUrl: "https://ratings.fide.com/profile/990001" },
     { fideId: "990001", period: "2025-07-01", ratingType: "standard", rating: 1750, games: 3, isPublishedOfficialRating: true, sourceUrl: "https://ratings.fide.com/profile/990001" },
     { fideId: "990001", period: "2026-07-01", ratingType: "standard", rating: 1812, games: 4, isPublishedOfficialRating: true, sourceUrl: "https://ratings.fide.com/profile/990001" },
     { fideId: "990001", period: "2026-07-01", ratingType: "rapid", rating: 1760, games: 2, isPublishedOfficialRating: true, sourceUrl: "https://ratings.fide.com/profile/990001" },
   ],
   events: [{ eventId: "777001", eventName: "Coupe FIDE des Tests", ratingPeriod: "2026-06-01", ratingType: "standard", eventType: "cup", fideId: "990001", playerName: "Alice MARTIN", score: 4.5, games: 7, ratingChange: 12, sourceUrl: "https://ratings.fide.com/report.phtml?event=777001&t=0" }],
   games: [], participations: [{ tournamentRef: "67414", title: "Open des Tests", date: "2026-06-01", year: 2026, ratingType: "standard", score: 4.5, playedRounds: 7, rank: 2, sourceUrl: "https://example.test" }],
+  careerEvents: [
+    { canonicalEventId: "ffe:67414:A12345", playerKey: "A12345", ffeCode: "A12345", fideId: "990001", displayName: "Open des Tests", normalizedName: "OPEN DES TESTS", startDate: "2026-06-01", year: 2026, eventType: "individual_tournament", ratingType: "standard", ffeTournamentRef: "67414", score: 4.5, ratedGames: 7, sources: [{ type: "ffe_results", url: "https://example.test", fetchedAt: "2026-07-01T00:00:00.000Z" }], catalogStatus: "matched", reportStatus: "available_to_generate", matchConfidence: "exact" },
+    { canonicalEventId: "fide:777001:990001:2026-06-01:standard", playerKey: "A12345", ffeCode: "A12345", fideId: "990001", displayName: "Coupe FIDE des Tests", normalizedName: "COUPE FIDE DES TESTS", ratingPeriod: "2026-06-01", year: 2026, eventType: "cup", ratingType: "standard", fideEventId: "777001", score: 4.5, ratedGames: 7, officialRatingChange: 12, sources: [{ type: "fide_event_report", url: "https://ratings.fide.com/report.phtml?event=777001&t=0", fetchedAt: "2026-07-01T00:00:00.000Z" }], catalogStatus: "not_matched", reportStatus: "insufficient_data", matchConfidence: "unmatched" },
+  ],
   statistics: { ratedGames: 0, wins: 0, draws: 0, losses: 0, last12MonthsGames: 0, standardChange12Months: 62, peakStandard: 1812, peakRapid: 1760, peakBlitz: 1695 },
   summary: ["Aucune partie classée détaillée n’est encore disponible dans le cache partagé.", "Sur la période comparable, le classement standard a progressé de 62 points."],
   coverage: { recentYears: [2026, 2025], completeYears: [2026, 2025], oldestPeriod: "2025-07-01", newestPeriod: "2026-07-01", fideAvailable: true, ffeComplete: false },
@@ -110,16 +116,17 @@ test("affiche les six onglets du rapport", async ({ page }) => {
 test("ouvre la progression Elo", async ({ page }) => {
   await page.goto("/joueurs/A12345");
   await page.getByRole("tab", { name: "Progression Elo" }).click();
-  await expect(page.getByRole("img", { name: /Évolution du classement FIDE standard/ })).toBeVisible();
+  await expect(page.getByRole("img", { name: /Évolution des classements FIDE/ })).toBeVisible();
 });
 
-test("filtre standard rapide et blitz", async ({ page }) => {
+test("affiche toute la carrière et permet de masquer standard, rapide et blitz", async ({ page }) => {
   await page.goto("/joueurs/A12345");
   await page.getByRole("tab", { name: "Progression Elo" }).click();
-  await page.getByLabel("Cadence FIDE").selectOption("rapid");
-  await expect(page.getByRole("img", { name: /rapid/ })).toBeVisible();
-  await page.getByLabel("Cadence FIDE").selectOption("blitz");
-  await expect(page.getByText("Aucun classement publié")).toBeVisible();
+  await expect(page.getByRole("button", { name: "3 ans" })).toHaveAttribute("aria-pressed", "true");
+  await page.getByRole("button", { name: "Toute la carrière" }).click();
+  await expect(page.getByRole("button", { name: "Toute la carrière" })).toHaveAttribute("aria-pressed", "true");
+  await page.getByLabel("Séries Elo").getByLabel("Blitz").uncheck();
+  await page.getByRole("button", { name: "Réinitialiser le zoom" }).click();
 });
 
 test("affiche les années récentes validées", async ({ page }) => {
@@ -137,13 +144,13 @@ test("affiche aussi les compétitions FIDE homologuées", async ({ page }) => {
   await page.goto("/joueurs/A12345");
   await page.getByRole("tab", { name: "Tournois et compétitions" }).click();
   await expect(page.getByRole("heading", { name: "Coupe FIDE des Tests" })).toBeVisible();
-  await expect(page.getByRole("link", { name: "Source FIDE" })).toHaveAttribute("href", /ratings\.fide\.com/);
+  await expect(page.getByRole("link", { name: "Voir les résultats classés" })).toHaveAttribute("href", /ratings\.fide\.com/);
 });
 
 test("conserve le lien vers le rapport tournoi", async ({ page }) => {
   await page.goto("/joueurs/A12345");
   await page.getByRole("tab", { name: "Tournois et compétitions" }).click();
-  await expect(page.getByRole("link", { name: "Rapport FFE" })).toHaveAttribute("href", "/tournoi/67414");
+  await expect(page.getByRole("link", { name: "Voir le rapport" }).first()).toHaveAttribute("href", "/tournoi/67414");
 });
 
 test("distingue les résultats classés des PGN", async ({ page }) => {

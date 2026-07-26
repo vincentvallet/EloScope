@@ -23,8 +23,17 @@ describe.skipIf(process.env.FIDE_NETWORK_SMOKE !== "1")("smoke réseau FFE/FIDE 
       cacheKey: "fide/players/637610/profile-html.json",
     });
     const fide = parseFideProfile(response.body, "637610", response.fetchedAt);
-    expect(fide).toMatchObject({ fideId: "637610", standardRating: expect.any(Number) });
+    expect(fide).toMatchObject({
+      fideId: "637610",
+      standardRating: expect.any(Number),
+      federationCode: "FRA",
+      federationFlag: "🇫🇷",
+      birthYear: 1986,
+    });
+    expect(fide.fideTitle).toBeUndefined();
     expect(fide.ratings.length).toBeGreaterThan(12);
+    const periods = fide.ratings.map((item) => item.period).sort();
+    expect(Date.parse(periods.at(-1)!) - Date.parse(periods[0])).toBeGreaterThan(3 * 365 * 24 * 60 * 60_000);
     const players = new MemoryPlayerStorage();
     await savePlayerProfiles(players, [profile]);
     const ffeTournament = new FfeResultsAdapter();
@@ -43,6 +52,8 @@ describe.skipIf(process.env.FIDE_NETWORK_SMOKE !== "1")("smoke réseau FFE/FIDE 
       client: fideClient,
     });
     expect(built).toMatchObject({ state: "ready", report: { ffeCode: "W16194", fideId: "637610" } });
+    expect(built.report?.careerEvents?.length).toBeGreaterThan(0);
+    expect(built.report?.careerEvents?.some((event) => !event.ffeTournamentRef)).toBe(true);
     expect((await isolatedStorage.list()).some((key) => key === "fide/player-reports/W16194/report.json")).toBe(true);
   }, 120_000);
 });

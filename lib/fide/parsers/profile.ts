@@ -1,6 +1,7 @@
 import { load } from "cheerio";
 import type { FidePlayer, FideRatingPoint, FideRatingType } from "../types";
 import { normalizeFideId } from "../identity/normalize-fide-id";
+import { FIDE_TITLE_LABELS, normalizeFideTitle, resolveFederation, validBirthYear } from "../federations";
 
 const months: Record<string, string> = {
   Jan: "01", Feb: "02", Mar: "03", Apr: "04", May: "05", Jun: "06",
@@ -24,6 +25,11 @@ export function parseFideProfile(html: string, requestedId: string, fetchedAt = 
   if (!rawName || !fideId) throw new Error("Profil FIDE non reconnu");
   const title = $(".profile-info-title p").first().text().trim();
   const federation = $(".profile-info-country").first().text().trim();
+  const federationFromName = resolveFederation(undefined, federation);
+  const flagIso = $(".profile-info-country img").first().attr("src")?.match(/\/flags\/([a-z]{2})\./i)?.[1]?.toUpperCase();
+  const federationInfo = federationFromName ?? (flagIso === "FR" ? resolveFederation("FRA") : undefined);
+  const fideTitle = normalizeFideTitle(title);
+  const birthYear = validBirthYear($(".profile-info-byear").first().text());
   const sourceUrl = `https://ratings.fide.com/profile/${fideId}`;
   const ratings: FideRatingPoint[] = [];
   $(".profile-table_calc tbody tr").each((_, row) => {
@@ -49,8 +55,14 @@ export function parseFideProfile(html: string, requestedId: string, fetchedAt = 
     fideId,
     name: rawName.includes(",") ? rawName.split(",").reverse().map((item) => item.trim()).join(" ") : rawName,
     federation: federation || undefined,
-    title: title && title.toLowerCase() !== "none" ? title : undefined,
-    active: ratings.slice(0, 36).some((item) => (item.games ?? 0) > 0),
+    title: fideTitle,
+    federationCode: federationInfo?.fideCode,
+    federationName: federationInfo?.displayName ?? (federation || undefined),
+    federationFlag: federationInfo?.flagCode,
+    ...(birthYear ? { birthYear } : {}),
+    fideTitle,
+    fideTitleLabel: fideTitle ? FIDE_TITLE_LABELS[fideTitle] : undefined,
+    active: ratings.some((item) => (item.games ?? 0) > 0),
     standardRating: latest("standard"),
     rapidRating: latest("rapid"),
     blitzRating: latest("blitz"),

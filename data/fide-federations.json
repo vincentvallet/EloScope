@@ -1,0 +1,15 @@
+{
+  "FRA": { "nameFr": "France", "iso2": "FR", "flag": "🇫🇷" },
+  "ENG": { "nameFr": "Angleterre", "iso2": "GB-ENG", "flag": "🏴" },
+  "SCO": { "nameFr": "Écosse", "iso2": "GB-SCT", "flag": "🏴" },
+  "WLS": { "nameFr": "Pays de Galles", "iso2": "GB-WLS", "flag": "🏴" },
+  "FID": { "nameFr": "FIDE", "flag": "FIDE" },
+  "GER": { "nameFr": "Allemagne", "iso2": "DE", "flag": "🇩🇪" },
+  "ESP": { "nameFr": "Espagne", "iso2": "ES", "flag": "🇪🇸" },
+  "ITA": { "nameFr": "Italie", "iso2": "IT", "flag": "🇮🇹" },
+  "BEL": { "nameFr": "Belgique", "iso2": "BE", "flag": "🇧🇪" },
+  "NED": { "nameFr": "Pays-Bas", "iso2": "NL", "flag": "🇳🇱" },
+  "SUI": { "nameFr": "Suisse", "iso2": "CH", "flag": "🇨🇭" },
+  "USA": { "nameFr": "États-Unis", "iso2": "US", "flag": "🇺🇸" },
+  "CAN": { "nameFr": "Canada", "iso2": "CA", "flag": "🇨🇦" }
+}

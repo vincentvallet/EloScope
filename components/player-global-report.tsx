@@ -6,6 +6,7 @@ import { Activity, BarChart3, CalendarDays, Check, ExternalLink, RefreshCcw, Sea
 import { EChart } from "./echart";
 import { Card, EmptyState } from "./ui";
 import type { FideRatingType, PlayerGlobalReport, PlayerReportMetadata } from "@/lib/fide/types";
+import { careerRatingSeries, filterRatingsByRange, type RatingRange } from "@/lib/fide/rating-history";
 
 type Payload = { state: string; report?: PlayerGlobalReport | null; metadata?: PlayerReportMetadata; error?: string };
 type Tab = "overview" | "ratings" | "events" | "games" | "compare" | "opponent";
@@ -18,11 +19,11 @@ const tabs: Array<{ id: Tab; label: string }> = [
   { id: "compare", label: "Comparaison" },
   { id: "opponent", label: "Adversaire" },
 ];
+const ratingLabels: Record<FideRatingType, string> = { standard: "Standard", rapid: "Rapide", blitz: "Blitz" };
 
 export function PlayerGlobalReportView({ ffeCode }: { ffeCode: string }) {
   const [payload, setPayload] = useState<Payload | null>(null);
   const [active, setActive] = useState<Tab>("overview");
-  const [ratingType, setRatingType] = useState<FideRatingType>("standard");
   const [generating, setGenerating] = useState(false);
   const [error, setError] = useState("");
   const [pollToken, setPollToken] = useState(0);
@@ -101,14 +102,16 @@ export function PlayerGlobalReportView({ ffeCode }: { ffeCode: string }) {
         && !(payload.metadata.status === "retry_wait" && payload.metadata.nextRetryAt && Date.parse(payload.metadata.nextRetryAt) > clock)
         && <button className="button" onClick={generate} disabled={generating}>Réessayer les données manquantes</button>}
     </Card>}
-    <div className="global-report-title"><div><span className="eyebrow"><ShieldCheck/>Rapport global partagé</span><h2>Carrière FFE + FIDE</h2><p>Mis à jour le {new Date(report.generatedAt).toLocaleDateString("fr-FR")}</p></div>
+    <div className="global-report-title"><div><span className="eyebrow"><ShieldCheck/>Rapport global partagé</span><h2>{report.player.federationFlag && <span role="img" aria-label={`Drapeau de la fédération ${report.player.federationName ?? report.player.federationCode}`}>{report.player.federationFlag} </span>}Carrière FFE + FIDE</h2>
+      <p>{report.player.fideTitle && <><strong title={report.player.fideTitleLabel}>{report.player.fideTitle}</strong> · {report.player.fideTitleLabel} · </>}Fédération représentée : {report.player.federationName ?? report.player.federation ?? "non publiée"}{report.player.birthYear ? ` · Né(e) en ${report.player.birthYear}` : ""} · FIDE {report.fideId}</p>
+      <p>Mis à jour le {new Date(report.generatedAt).toLocaleDateString("fr-FR")}</p></div>
       <a href={report.player.sourceUrl} target="_blank" rel="noreferrer" className="button">Profil FIDE<ExternalLink/></a></div>
     <div className="player-report-tabs" role="tablist" aria-label="Sections du rapport">
       {tabs.map((tab) => <button role="tab" aria-selected={active === tab.id} className={active === tab.id ? "active" : ""} onClick={() => setActive(tab.id)} key={tab.id}>{tab.label}</button>)}
     </div>
     <div role="tabpanel">
       {active === "overview" && <Overview report={report}/>}
-      {active === "ratings" && <Ratings report={report} type={ratingType} setType={setRatingType}/>}
+      {active === "ratings" && <Ratings report={report}/>}
       {active === "events" && <Events report={report}/>}
       {active === "games" && <Games report={report}/>}
       {active === "compare" && <Compare ffeCode={ffeCode}/>}
@@ -129,38 +132,65 @@ function Overview({ report }: { report: PlayerGlobalReport }) {
     <div className="global-kpis">
       <Card><Activity/><small>Parties classées détaillées</small><strong>{report.statistics.ratedGames}</strong></Card>
       <Card><Trophy/><small>Pic standard</small><strong>{report.statistics.peakStandard ?? "—"}</strong></Card>
-      <Card><CalendarDays/><small>Tournois FFE indexés</small><strong>{report.participations.length}</strong></Card>
+      <Card><CalendarDays/><small>Compétitions connues</small><strong>{report.statistics.knownEvents ?? report.careerEvents?.length ?? report.events.length + report.participations.length}</strong></Card>
     </div>
     <Card className="career-summary"><h3>Synthèse calculée</h3>{report.summary.map((line) => <p key={line}>{line}</p>)}</Card>
     <div className="coverage-notice"><Check/><p>Couverture FIDE : {report.coverage.oldestPeriod ?? "—"} à {report.coverage.newestPeriod ?? "—"}. Années récentes validées : {report.coverage.completeYears.join(", ") || "aucune"}. {report.coverage.ffeComplete ? "Index FFE complet." : "Index FFE encore progressif."}</p></div>
   </div>;
 }
 
-function Ratings({ report, type, setType }: { report: PlayerGlobalReport; type: FideRatingType; setType: (value: FideRatingType) => void }) {
-  const points = report.ratings.filter((item) => item.ratingType === type && item.rating != null).sort((a, b) => a.period.localeCompare(b.period));
+function Ratings({ report }: { report: PlayerGlobalReport }) {
+  const [range, setRange] = useState<RatingRange>(3);
+  const [zoomKey, setZoomKey] = useState(0);
+  const [visible, setVisible] = useState<Record<FideRatingType, boolean>>({ standard: true, rapid: true, blitz: true });
+  const points = filterRatingsByRange(report.ratings, range);
+  const chart = careerRatingSeries(points, visible);
   const option = useMemo<EChartsOption>(() => ({
-    tooltip: { trigger: "axis" },
-    grid: { left: 45, right: 20, top: 25, bottom: 50 },
-    xAxis: { type: "category", data: points.map((item) => item.period.slice(0, 7)), axisLabel: { hideOverlap: true } },
+    tooltip: { trigger: "axis", confine: true },
+    legend: { top: 0 },
+    grid: { left: 45, right: 20, top: 45, bottom: 75 },
+    xAxis: { type: "category", data: chart.periods.map((period) => period.slice(0, 7)), axisLabel: { hideOverlap: true } },
     yAxis: { type: "value", scale: true },
-    series: [{ type: "line", smooth: true, showSymbol: false, data: points.map((item) => item.rating), lineStyle: { color: "#356B82", width: 3 }, areaStyle: { color: "rgba(53,107,130,.12)" } }],
-  }), [points]);
-  return <Card className="rating-chart-card"><div className="section-toolbar"><div><h3>Classements mensuels officiels</h3><p>Les mois sans partie restent des classements publiés, pas de nouvelles parties.</p></div><label>Cadence<select aria-label="Cadence FIDE" value={type} onChange={(event) => setType(event.target.value as FideRatingType)}><option value="standard">Standard</option><option value="rapid">Rapide</option><option value="blitz">Blitz</option></select></label></div>
-    {points.length ? <EChart option={option} height={360} ariaLabel={`Évolution du classement FIDE ${type}`}/> : <EmptyState title="Aucun classement publié">Cette cadence n’est pas disponible dans le profil officiel.</EmptyState>}</Card>;
+    dataZoom: [
+      { type: "inside", zoomOnMouseWheel: true, moveOnMouseMove: true, preventDefaultMouseMove: true },
+      { type: "slider", bottom: 12, height: 24 },
+    ],
+    series: chart.series.map((series) => ({
+      name: ratingLabels[series.type], type: "line", connectNulls: false, showSymbol: false, data: series.data,
+    })),
+  }), [chart.periods, chart.series]);
+  const ranges: Array<[RatingRange, string]> = [[1, "1 an"], [3, "3 ans"], [5, "5 ans"], [10, "10 ans"], ["career", "Toute la carrière"]];
+  return <Card className="rating-chart-card">
+    <div className="section-toolbar"><div><h3>Classements mensuels officiels</h3><p>Historique complet disponible, sans interpolation des mois manquants.</p></div></div>
+    <div className="rating-controls" aria-label="Période du graphique">
+      {ranges.map(([value, label]) => <button key={String(value)} className={`button ${range === value ? "primary" : ""}`} aria-pressed={range === value} onClick={() => { setRange(value); setZoomKey((key) => key + 1); }}>{label}</button>)}
+      <button className="button" onClick={() => setZoomKey((key) => key + 1)}>Réinitialiser le zoom</button>
+    </div>
+    <div className="rating-controls" aria-label="Séries Elo">
+      {(Object.keys(visible) as FideRatingType[]).map((type) => <label key={type}><input type="checkbox" checked={visible[type]} onChange={() => setVisible((state) => ({ ...state, [type]: !state[type] }))}/>{ratingLabels[type]}</label>)}
+    </div>
+    {chart.periods.length ? <EChart key={zoomKey} option={option} height={420} ariaLabel="Évolution des classements FIDE standard, rapide et blitz"/> : <EmptyState title="Aucun classement publié">Aucun point officiel n’est disponible sur cette période.</EmptyState>}
+  </Card>;
 }
 
 function Events({ report }: { report: PlayerGlobalReport }) {
-  const items = [...report.participations].sort((a, b) => (b.date ?? "").localeCompare(a.date ?? ""));
-  const fideEvents = [...report.events].sort((a, b) => (b.ratingPeriod ?? "").localeCompare(a.ratingPeriod ?? ""));
-  if (!items.length && !fideEvents.length) return <EmptyState title="Aucune compétition agrégée">Les index FFE et FIDE progressent indépendamment.</EmptyState>;
-  return <div className="competition-groups">
-    <section><h3>Compétitions FFE ({items.length})</h3>
-      {items.length ? <div className="participation-list">{items.slice(0, 50).map((item) => <Card className="participation-card" key={`${item.tournamentRef}:${item.date}`}><div><span className="status-pill">{item.ratingType ?? "cadence inconnue"}</span><h3>{item.title}</h3><p>{item.date ? new Date(item.date).toLocaleDateString("fr-FR") : item.year ?? "Date inconnue"} · {item.playedRounds ?? 0} partie(s) · score {item.score ?? "—"}</p></div><a className="button" href={`/tournoi/${item.tournamentRef}`}>Rapport FFE</a></Card>)}</div> : <p className="report-empty-note">Aucune participation FFE indexée.</p>}
-    </section>
-    <section><h3>Compétitions FIDE homologuées ({fideEvents.length})</h3>
-      {fideEvents.length ? <div className="participation-list">{fideEvents.slice(0, 50).map((event) => <Card className="participation-card" key={`${event.eventId}:${event.ratingType}`}><div><span className="status-pill">FIDE · {event.ratingType}</span><h3>{event.eventName}</h3><p>{event.ratingPeriod ?? "Période inconnue"} · {event.games ?? 0} partie(s) · score {event.score ?? "—"} · variation {event.ratingChange ?? "—"}</p></div><a className="button" href={event.sourceUrl} target="_blank" rel="noreferrer">Source FIDE</a></Card>)}</div> : <p className="report-empty-note">Aucun rapport de compétition FIDE détaillé dans la fenêtre récente.</p>}
-    </section>
-  </div>;
+  const items = report.careerEvents ?? [];
+  if (!items.length) return <EmptyState title="Aucune compétition retrouvée">Les événements FIDE apparaissent indépendamment du catalogue ; l’index FFE complète ensuite les détails.</EmptyState>;
+  return <section className="competition-groups"><h3>Tournois et compétitions ({items.length})</h3>
+    <div className="participation-list">{items.map((event) => {
+      const hasFfe = event.sources.some((source) => source.type.startsWith("ffe_"));
+      const hasFide = event.sources.some((source) => source.type.startsWith("fide_"));
+      const sourceLabel = hasFfe && hasFide ? "FFE + FIDE" : hasFfe ? "FFE" : "FIDE";
+      const sourceUrl = event.sources.find((source) => source.type.startsWith("fide_"))?.url;
+      const actionUrl = event.ffeTournamentRef ? `/tournoi/${event.ffeTournamentRef}` : sourceUrl;
+      return <Card className="participation-card" key={event.canonicalEventId}><div>
+        <div><span className="status-pill">{sourceLabel}</span> <span className="status-pill">{event.ratingType}</span>{event.catalogStatus === "not_matched" && <span className="status-pill">Événement non rapproché</span>}</div>
+        <h3>{event.displayName}</h3>
+        <p>{event.startDate ? new Date(event.startDate).toLocaleDateString("fr-FR") : event.ratingPeriod?.slice(0, 7) ?? event.year ?? "Période inconnue"} · {event.ratedGames ?? 0} partie(s) · score {event.score ?? "—"}</p>
+        <small>Elo moyen adverse {event.averageOpponentRating ?? "—"} · performance {event.performanceRating ?? "—"} · variation officielle {event.officialRatingChange ?? "—"}</small>
+      </div>{actionUrl ? <a className="button" href={actionUrl} target={event.ffeTournamentRef ? undefined : "_blank"} rel="noreferrer">{event.ffeTournamentRef ? "Voir le rapport" : "Voir les résultats classés"}</a> : <span>Données détaillées non disponibles</span>}</Card>;
+    })}</div>
+  </section>;
 }
 
 function Games({ report }: { report: PlayerGlobalReport }) {
@@ -171,7 +201,7 @@ function Games({ report }: { report: PlayerGlobalReport }) {
 function Compare({ ffeCode }: { ffeCode: string }) {
   const [code, setCode] = useState("");
   const [result, setResult] = useState<{
-    players?: Array<{ name: string; standardRating?: number }>;
+    players?: Array<{ name: string; standardRating?: number; federationFlag?: string; federationName?: string; birthYear?: number; fideTitle?: string; fideTitleLabel?: string }>;
     expectedScore?: number;
     headToHead?: { total: number; wins: number; draws: number; losses: number };
     competitions?: { players: Array<{ ffeParticipations: number; fideEvents: number; ratedGames: number }> };
@@ -182,7 +212,8 @@ function Compare({ ffeCode }: { ffeCode: string }) {
     setResult(await response.json());
   };
   return <Card className="scout-card"><BarChart3/><div><h3>Comparer deux joueurs</h3><p>Le rapport adverse doit déjà être présent dans le cache partagé.</p><label>Code FFE adverse<input value={code} onChange={(event) => setCode(event.target.value)} placeholder="A12345"/></label><button className="button primary" disabled={!/^[A-Z]\d{5}$/i.test(code)} onClick={compare}>Comparer</button>
-    {result?.error && <p className="form-error">{result.error}</p>}{result?.players && <div className="compare-result"><strong>{result.players[0].name} — {result.players[1].name}</strong><p>Score théorique du premier joueur : {Math.round((result.expectedScore ?? 0) * 100)} %.</p>
+    {result?.error && <p className="form-error">{result.error}</p>}{result?.players && <div className="compare-result"><strong>{result.players[0].federationFlag} {result.players[0].fideTitle} {result.players[0].name} — {result.players[1].federationFlag} {result.players[1].fideTitle} {result.players[1].name}</strong>
+      <p>{result.players.map((player) => [player.federationName, player.birthYear ? `né(e) en ${player.birthYear}` : "", player.fideTitleLabel].filter(Boolean).join(" · ")).join(" — ")}</p><p>Score théorique du premier joueur : {Math.round((result.expectedScore ?? 0) * 100)} %.</p>
       {result.competitions && <p>Compétitions recensées : {result.competitions.players[0].ffeParticipations} FFE + {result.competitions.players[0].fideEvents} FIDE contre {result.competitions.players[1].ffeParticipations} FFE + {result.competitions.players[1].fideEvents} FIDE.</p>}
       {result.headToHead && <p>Face-à-face classé : {result.headToHead.total} partie(s), {result.headToHead.wins} victoire(s), {result.headToHead.draws} nulle(s), {result.headToHead.losses} défaite(s).</p>}
     </div>}</div></Card>;
@@ -190,13 +221,13 @@ function Compare({ ffeCode }: { ffeCode: string }) {
 
 function OpponentScout({ ffeCode }: { ffeCode: string }) {
   const [query, setQuery] = useState("");
-  const [items, setItems] = useState<Array<{ ffeCode: string; displayName: string; standardRating?: number }>>([]);
+  const [items, setItems] = useState<Array<{ ffeCode: string; displayName: string; standardRating?: number; federationFlag?: string; federationName?: string; birthYear?: number; fideTitle?: string }>>([]);
   useEffect(() => {
     if (query.trim().length < 3) { setItems([]); return; }
     const controller = new AbortController();
-    const timer = setTimeout(() => fetch(`/api/players/search?q=${encodeURIComponent(query)}`, { signal: controller.signal }).then((response) => response.json() as Promise<{ items?: Array<{ ffeCode: string; displayName: string; standardRating?: number }> }>).then((body) => setItems(body.items ?? [])).catch(() => {}), 350);
+    const timer = setTimeout(() => fetch(`/api/players/search?q=${encodeURIComponent(query)}`, { signal: controller.signal }).then((response) => response.json() as Promise<{ items?: Array<{ ffeCode: string; displayName: string; standardRating?: number; federationFlag?: string; federationName?: string; birthYear?: number; fideTitle?: string }> }>).then((body) => setItems(body.items ?? [])).catch(() => {}), 350);
     return () => { clearTimeout(timer); controller.abort(); };
   }, [query]);
   return <Card className="scout-card"><Swords/><div><h3>Scout adversaire</h3><p>Recherchez un joueur FFE, puis ouvrez la comparaison de profils officiels.</p><label><Search/>Nom ou code FFE<input aria-label="Rechercher un adversaire" value={query} onChange={(event) => setQuery(event.target.value)}/></label>
-    <div className="opponent-results">{items.filter((item) => item.ffeCode !== ffeCode).slice(0, 6).map((item) => <a href={`/joueurs/${item.ffeCode}`} key={item.ffeCode}><strong>{item.displayName}</strong><span>{item.ffeCode} · Elo {item.standardRating ?? "NC"}</span></a>)}</div></div></Card>;
+    <div className="opponent-results">{items.filter((item) => item.ffeCode !== ffeCode).slice(0, 6).map((item) => <a href={`/joueurs/${item.ffeCode}`} key={item.ffeCode}><strong>{item.federationFlag} {item.fideTitle} {item.displayName}</strong><span>{item.ffeCode} · Elo {item.standardRating ?? "NC"}{item.federationName ? ` · ${item.federationName}` : ""}{item.birthYear ? ` · ${item.birthYear}` : ""}</span></a>)}</div></div></Card>;
 }

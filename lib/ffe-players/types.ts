@@ -8,6 +8,13 @@ export type FfePlayerProfile = {
   normalizedName: string;
   title?: string;
   federation?: string;
+  federationCode?: string;
+  federationName?: string;
+  federationFlag?: string;
+  birthYear?: number;
+  fideTitle?: import("@/lib/fide/federations").FidePlayerTitle;
+  fideTitleLabel?: string;
+  otherFideTitles?: string[];
   affiliationStatus?: string;
   currentClubName?: string;
   currentClubCode?: string;
