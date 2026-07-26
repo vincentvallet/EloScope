@@ -81,14 +81,23 @@ export class FideClient {
       const controller = new AbortController();
       const abort = () => controller.abort(parentSignal?.reason);
       parentSignal?.addEventListener("abort", abort, { once: true });
-      const timer = setTimeout(() => controller.abort("timeout"), this.options.timeoutMs ?? 15_000);
+      const timeoutMs = this.options.timeoutMs ?? 15_000;
+      let timer: ReturnType<typeof setTimeout> | undefined;
       try {
         this.lastRequestAt = Date.now();
-        const response = await this.fetcher(url, {
-          headers: { "user-agent": USER_AGENT, accept: "text/html,application/xhtml+xml", ...extraHeaders },
-          redirect: "follow",
-          signal: controller.signal,
-        });
+        const response = await Promise.race([
+          this.fetcher(url, {
+            headers: { "user-agent": USER_AGENT, accept: "text/html,application/xhtml+xml", ...extraHeaders },
+            redirect: "follow",
+            signal: controller.signal,
+          }),
+          new Promise<never>((_, reject) => {
+            timer = setTimeout(() => {
+              controller.abort("timeout");
+              reject(new FideSourceError("TIMEOUT", `Délai FIDE dépassé après ${timeoutMs} ms`, url.toString()));
+            }, timeoutMs);
+          }),
+        ]);
         if (!response.ok) {
           const code = response.status === 403 ? "HTTP_403"
             : response.status === 429 ? "HTTP_429"
@@ -111,7 +120,7 @@ export class FideClient {
         return body;
       } catch (error) {
         const classified = controller.signal.aborted && !parentSignal?.aborted
-          ? new FideSourceError("TIMEOUT", `Délai FIDE dépassé après ${this.options.timeoutMs ?? 15_000} ms`, url.toString())
+          ? new FideSourceError("TIMEOUT", `Délai FIDE dépassé après ${timeoutMs} ms`, url.toString())
           : classifyFideError(error);
         this.breaker.failure();
         this.options.logger?.({
@@ -129,7 +138,7 @@ export class FideClient {
         ) throw classified;
         await (this.options.wait ?? ((ms) => new Promise((resolve) => setTimeout(resolve, ms))))(500 * 2 ** attempt);
       } finally {
-        clearTimeout(timer);
+        if (timer) clearTimeout(timer);
         parentSignal?.removeEventListener("abort", abort);
       }
     }

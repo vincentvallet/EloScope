@@ -246,9 +246,9 @@ describe("cache, flux et résilience", () => {
     }
     const timeout = new FideClient({
       storage: new MemoryFideStorage(),
-      fetch: async (_input, init) => new Promise((_resolve, reject) => {
-        init?.signal?.addEventListener("abort", () => reject(new DOMException("aborted", "AbortError")));
-      }),
+      // Reproduit un fetch serveur qui ignore l'AbortSignal et ne règle
+      // jamais sa promesse.
+      fetch: async () => new Promise<Response>(() => {}),
       timeoutMs: 1,
       retries: 0,
       minDelayMs: 0,
